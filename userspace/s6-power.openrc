@@ -1,0 +1,8 @@
+#!/sbin/openrc-run
+description="Galaxy S6 guarded power actions"
+command=/usr/local/sbin/s6-power-server
+command_background=yes
+pidfile=/run/s6-power.pid
+output_log=/run/s6-power-server.log
+error_log=/run/s6-power-server.log
+depend() { need localmount; before s6-plasma-native; }

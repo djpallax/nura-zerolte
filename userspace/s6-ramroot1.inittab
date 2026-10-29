@@ -1,0 +1,7 @@
+# Alpine BusyBox init is PID 1; OpenRC owns the service runlevels.
+::sysinit:/sbin/openrc sysinit
+::sysinit:/sbin/openrc boot
+::wait:/sbin/openrc default
+tty1::respawn:/rescue/bin/busybox sh -i
+::ctrlaltdel:/sbin/reboot
+::shutdown:/sbin/openrc shutdown

@@ -1,0 +1,80 @@
+{
+  "device": "SM-G925I",
+  "status": "kernel/rescue bundle builder and BOOT-only TWRP installer implemented; clean first-time Nura rootfs installer pending",
+  "kernel": {
+    "upstream": "https://kernel.googlesource.com/pub/scm/linux/kernel/git/stable/linux-stable.git",
+    "base_commit": "cc9de5d4b5ab6459f5774946aa3195ad51236fa8",
+    "patch_sha256": "965363e382e7b32c3dc87f6d47fdd10947a154907df8cbecb9ecf6c7d9757aa1",
+    "config_sha256": "18fef1053dbe8b70679831e1ab28b3e537bc55f378aeeb7b284c09246ce197c3",
+    "fork_url": "https://github.com/djpallax/linux-zerolte.git",
+    "branch": "zerolte-7.2.12",
+    "fork_commit": null,
+    "source_tree": "fb1f50f9308bda4faf59d907dc6bb1bfe479cf91",
+    "patch": "kernel/zerolte.patch",
+    "config": "kernel/zerolte.config"
+  },
+  "dts_origin": "decompiled tested SYSTEM2 DTB; must integrate into kernel DTS tree",
+  "tested_local_boot_sha256": "7350a383674ec266c8db293b6b172910b6e29707f86f03cabdc4dc5087bf74c2",
+  "local_boot_is_distributable": false,
+  "rootfs": "Nura/postmarketOS v26.06; clean rootfs recipe and package locking still required",
+  "userspace_files": [
+    "s6-active-app-metadata.json",
+    "s6-active-app.js",
+    "s6-kwin-drm-nonblock.c",
+    "s6-persistent-init.sh",
+    "s6-plasma-native-session.sh",
+    "s6-plasma-native.openrc",
+    "s6-power-client.py",
+    "s6-power-menu.py",
+    "s6-power-server.py",
+    "s6-power.openrc",
+    "s6-ramroot1-ssh.openrc",
+    "s6-ramroot1-usb-setup.sh",
+    "s6-ramroot1.inittab",
+    "s6-screen-state.py",
+    "s6-system1-cpu-policy.openrc",
+    "s6-system1-led.rules",
+    "s6-system1-native-shell.sh",
+    "s6-system1-network-preflight.openrc",
+    "s6-system1-network.rules",
+    "s6-system1-networkmanager.conf",
+    "s6-system1-nm-dispatcher.sh",
+    "s6-system1-wlan-ssh.openrc",
+    "s6-system2-buttons.py",
+    "s6-system2-idle.sh",
+    "s6-vt-mode.c"
+  ],
+  "snapshot": "publication cleanup of SYSTEM2, compile validated 2026-10-29",
+  "kernel_validation": {
+    "Image_sha256": "ff2e546268c95ffabc8d536f3c956bdbddb7a54749b7e94cd4a4e925dbf65e24",
+    "compiler": "Clang/LLD 18.1.3",
+    "full_build_CONFIG_WERROR": true,
+    "port_objects_W1": 22,
+    "cleaned_candidate_hardware_tested": false
+  },
+  "busybox": {
+    "version": "1.37.0",
+    "url": "https://busybox.net/downloads/busybox-1.37.0.tar.bz2",
+    "sha256": "3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4"
+  },
+  "uniloader": {
+    "url": "https://github.com/ivoszbg/uniLoader.git",
+    "commit": "7781b33c87ccde3e57bb744c5b8bccdbedfa4bc3",
+    "config": "configs/uniloader.config"
+  },
+  "integration_inputs": {
+    "configs/busybox.config": "d0aac89887fbcce70727d20ae8f2f7e7b4400f76d29b0419f71d39e2a01cd0ed",
+    "configs/uniloader.config": "8e46ac63cd078a5a446b0653e1c80971a28e5e3df943e9ec7badcf811cccc5c2",
+    "rescue/init.sh": "251870bc8d15d26654079c1234162184fb9d45f544aef43ac4771aa1d3221b78",
+    "rescue/usb-setup.sh": "ada3760398ed8866e78446fdda34f6439976b931ca355aece4312a018ec471ee",
+    "rescue/reboot-recovery.S": "381a059edf8bd8d6329aa214cef96165f8c2337d0d49e1f76d5fffb07b43a65d",
+    "kernel/zerolte-system2.dts": "55481704739f9e2283e79c606f7289a373351a647bff62bc5236deb4cb60a1fb"
+  },
+  "historical_rootfs_inputs": {
+    "release": "v26.06",
+    "base_minirootfs": "alpine-minirootfs-3.24.3-aarch64.tar.gz",
+    "base_sha256": "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50",
+    "pmos_public_key_package": "postmarketos-keys-1-r1.apk",
+    "pmos_public_key_package_sha256": "91302c92afa6c45aed211be483e25652d9a4df8808a17c92f227773b38871210"
+  }
+}

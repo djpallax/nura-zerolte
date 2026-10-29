@@ -1,0 +1,1 @@
+SUBSYSTEM=="leds", KERNEL=="s6::kbd_backlight", ACTION=="add", RUN+="/bin/chgrp input /sys%p/brightness", RUN+="/bin/chmod 0664 /sys%p/brightness"

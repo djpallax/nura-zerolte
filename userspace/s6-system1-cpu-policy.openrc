@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+# GPU3-compatible fallback; never online CPUs or relax the kernel thermal cap.
+description="Galaxy S6 CPU demand scaling within validated low operating points"
+depend() { before ramroot1-ssh; }
+start() {
+ local p t peak
+ ebegin "Selecting CPU ondemand200MHz with thermally capped boost"
+ for p in /sys/devices/system/cpu/cpufreq/policy0 /sys/devices/system/cpu/cpufreq/policy1; do
+  [ -d "$p" ] && [ -n "$(cat "$p/affected_cpus")" ] || continue
+  if grep -qw 200000 "$p/scaling_available_frequencies" && grep -qw ondemand "$p/scaling_available_governors"; then
+   echo 200000 > "$p/scaling_min_freq" || return 1
+   case "$p" in */policy0) peak=1000000;; *) peak=800000;; esac
+   echo "$peak" > "$p/scaling_max_freq" || return 1
+   echo ondemand > "$p/scaling_governor" || return 1
+  else
+   echo userspace > "$p/scaling_governor" || return 1
+   echo 500000 > "$p/scaling_setspeed" || return 1
+  fi
+ done
+ for t in /sys/devices/system/cpu/cpufreq/ondemand /sys/devices/system/cpu/cpufreq/policy*/ondemand; do
+  [ -d "$t" ] || continue
+  echo 10000 > "$t/sampling_rate" || return 1
+  echo 60 > "$t/up_threshold" || return 1
+  echo 5 > "$t/sampling_down_factor" || return 1
+ done
+ eend 0
+}

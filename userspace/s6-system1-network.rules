@@ -1,0 +1,14 @@
+// Single-seat phone: allow only radio/network UI operations for mobile.
+// No blanket polkit administrator grant; sudo still requires its own password.
+polkit.addRule(function(action, subject) {
+ var allowed = [
+  "org.freedesktop.NetworkManager.enable-disable-wifi",
+  "org.freedesktop.NetworkManager.enable-disable-network",
+  "org.freedesktop.NetworkManager.network-control",
+  "org.freedesktop.NetworkManager.wifi.scan",
+  "org.freedesktop.NetworkManager.settings.modify.own",
+  "org.freedesktop.NetworkManager.settings.modify.system"
+ ];
+ if (subject.user === "mobile" && allowed.indexOf(action.id) >= 0)
+  return polkit.Result.YES;
+});

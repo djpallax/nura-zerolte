@@ -1,0 +1,4334 @@
+diff --git a/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml b/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml
+index 95501e858e6f824030f304d283eeb3e3be0e4294..a637c49941b3662f64da6fa249824c8a07f151ac 100644
+--- a/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml
++++ b/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml
+@@ -29,6 +29,7 @@ properties:
+           - brcm,bcm43438-bt
+           - brcm,bcm4345c5
+           - brcm,bcm43540-bt
++          - brcm,bcm4358-bt
+           - brcm,bcm4335a0
+           - brcm,bcm4349-bt
+           - cypress,cyw4373a0-bt
+diff --git a/Documentation/devicetree/bindings/serial/samsung_uart.yaml b/Documentation/devicetree/bindings/serial/samsung_uart.yaml
+index 75ac2a08f2576cfa99ea1df2898a2fed6ea916f8..2c013cf4b4c8b58632a5dd8d0bc64441d55c6b89 100644
+--- a/Documentation/devicetree/bindings/serial/samsung_uart.yaml
++++ b/Documentation/devicetree/bindings/serial/samsung_uart.yaml
+@@ -35,6 +35,7 @@ properties:
+       - items:
+           - enum:
+               - samsung,exynos7-uart
++              - samsung,exynos7420-uart
+               - tesla,fsd-uart
+           - const: samsung,exynos4210-uart
+       - items:
+@@ -88,6 +89,13 @@ properties:
+   power-domains:
+     maxItems: 1
+ 
++  samsung,lpass-syscon:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description: |
++      Experimental Exynos7420 AUD UART routing through the LPASS system
++      registers. Only LPASS_INTR_CPU_MASK bit 1 is modified; its original
++      value is restored on UART close. UART reset must already be released.
++
+   samsung,uart-fifosize:
+     description: The fifo size supported by the UART channel.
+     $ref: /schemas/types.yaml#/definitions/uint32
+diff --git a/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml b/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
+index 710ce493f3b67aedee52ca40c100c9f2e52c61f7..e6994ba1b89819a532fda9141a6e826e46830639 100644
+--- a/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
++++ b/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
+@@ -17,6 +17,7 @@ properties:
+     enum:
+       - google,gs101-ufs
+       - samsung,exynos7-ufs
++      - samsung,exynos7420-ufs
+       - samsung,exynosautov9-ufs
+       - samsung,exynosautov9-ufs-vh
+       - samsung,exynosautov920-ufs
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 95cd976a068c09047b1e811868d68fb58b93c88b..8e19dcb0e1d7c541e14c025052be00c8c609d1f8 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -24049,6 +24049,21 @@ L:	platform-driver-x86@vger.kernel.org
+ S:	Maintained
+ F:	drivers/platform/x86/samsung-laptop.c
+ 
++SAMSUNG GALAXY S6 EDGE (ZEROLTE) EXPERIMENTAL SUPPORT
++S:	Odd Fixes
++W:	https://github.com/djpallax/linux-zerolte
++F:	ZEROLTE.md
++F:	arch/arm64/configs/zerolte_defconfig
++F:	drivers/clk/samsung/clk-zerolte-*.c
++F:	drivers/cpufreq/s6-atlas-prepare.c
++F:	drivers/gpu/drm/panfrost/s6-g3d-pilot.c
++F:	drivers/hwmon/s6_tmu_observe.c
++F:	drivers/input/touchscreen/s6-fts-pilot.c
++F:	drivers/pci/controller/dwc/pci-zerolte.c
++F:	drivers/power/supply/s6_max77843_readonly.c
++F:	drivers/regulator/s6-tsp-avdd.c
++F:	kernel/s6_bootdiag.c
++
+ SAMSUNG MULTIFUNCTION PMIC DEVICE DRIVERS
+ M:	André Draszik <andre.draszik@linaro.org>
+ L:	linux-kernel@vger.kernel.org
+diff --git a/ZEROLTE.md b/ZEROLTE.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..be47b85721e0e31daa0532e11f48ce6460b6d34a
+--- /dev/null
++++ b/ZEROLTE.md
+@@ -0,0 +1,191 @@
++# Samsung Galaxy S6 Edge mainline Linux support
++
++Independent experimental port for **Samsung SM-G925I (zerolte), Exynos7420**.
++Only this model has been tested. Do not assume that another Galaxy S6 or S6 Edge
++variant has identical wiring, firmware, memory layout or boot requirements.
++This is not an official Nura device release.
++
++## Scope and validation
++
++The port is based on **Linux v7.2.12**, upstream commit
++`cc9de5d4b5ab6459f5774946aa3195ad51236fa8`.
++It was developed with LLVM/Clang. Hardware observations below come from the
++SYSTEM2 development image and earlier recorded bring-up tests. The publication
++cleanup removes obsolete diagnostics and normalizes the source; a successful
++build of the cleaned tree does not itself constitute a new hardware test.
++
++This repository contains kernel changes. A bootable installation also needs the
++matching device tree, initramfs, uniLoader integration, firmware and userspace
++packages. Those components are separate integration work. The current tested
++userspace is Nura/postmarketOS v26.06 with OpenRC and Plasma Mobile.
++
++## Implemented kernel changes
++
++### Storage and boot recovery
++
++- Exynos7420-specific UFS matching and quirks, including firmware ownership of
++  secure UFSPR registers. Direct access to those registers caused an SError.
++- UFS clock-gating ordering before the core clock is disabled, addressing the
++  failure observed during shutdown/recovery.
++- A board- and device-tree-gated boot supervisor that captures blocked tasks,
++  the I2C bus owner and interrupt counts before userspace. An additional explicit
++  device-tree opt-in permits one recovery restart if boot remains stuck.
++- Removal of experimental framebuffer bars, direct glyph rendering, no-op stage
++  markers, the obsolete `/proc/g925i_msg` bridge and temporary probe chatter.
++
++### CPUs, clocks and thermal protection
++
++- APOLLO (Cortex-A53) and ATLAS (Cortex-A57) clock providers using Samsung register
++  layouts, bounded mux/divider waits and verified PLL/divider settings.
++- Early 500 MHz cluster preparation before SMP; failure retains a single-core
++  rescue boot. ATLAS preparation also checks its supply constraint.
++- CPU operating points supporting low-frequency operation and controlled boosts.
++  Validated rates include A53 200/400/500/1000/1500 MHz and A57
++  200/400/500/800/1000 MHz. These are tested points, not an ASV or full-load
++  stability qualification for every chip.
++- A physical architected-counter workaround for mismatched firmware CNTVOFF
++  values across CPUs, including disabling the incompatible direct vDSO path.
++- Read-only TMU converter sampling with captured P0 calibration, validity checks,
++  and rejection of impossible measurements.
++- Automatic CPU frequency limiting and secondary-core parking at 55 C, with
++  5 C hysteresis. Invalid sensors trigger conservative cooling. The 85 C critical
++  trip requests clean recovery through the rescue userspace helper.
++- Thermal recovery arguments have explicit lifetime management for asynchronous
++  execution; the action does not wait for the recovery process to finish.
++
++### Battery and temperature telemetry
++
++- Read-only MAX77843 battery/USB power-supply reporting, including battery state,
++  capacity, voltage, current and inherited charger settings.
++- Exynos7420 ADC support for the firmware-initialized supply arrangement.
++- Fresh battery and charger thermistor conversions using board-specific NTC
++  tables, with interpolation and open/short/out-of-range rejection.
++- No fuel-gauge model programming or active charger configuration is implemented.
++
++### Connectivity
++
++- Staged MAX77843 interrupt unmasking so handlers exist before pending MUIC
++  sources can run; this addresses the observed boot-time I2C lockup.
++- Explicit LPASS UART routing for the Bluetooth UART, with saved/restored IRQ
++  routing state and reset-state validation.
++- BCM4358A3 identification and reset/baud-rate ordering in the Broadcom driver.
++- A board-specific PCIe WLAN root-complex implementation, Samsung PHY sequencing,
++  clocks, endpoint reset, MSI and serialized DBI access.
++- An opt-in USB VBUS-valid override needed by the development gadget path.
++  This is a board workaround, not a generic cable-detection solution.
++
++### Graphics and input
++
++- A Mali-T760 G3D clock/supply provider for Panfrost, with calibration checks,
++  bounded domain/PLL waits and verified 266 MHz / 693750 uV operation.
++- GPU domain/rails remain on. GPU DVFS, runtime power-off and suspend are not
++  implemented; intermittent scheduler timeouts remain an open issue.
++- STM FTS touchscreen events, multitouch slots and separate capacitive Back and
++  Recents key events. Firmware upgrades and NVM repair are deliberately absent.
++- Touchscreen analog supply support with a checked inherited 3.3 V selector,
++  plus an optional fixed-voltage key-backlight supply exposed through LED class.
++- Matching device-tree and userspace configuration provide the GPIO Home,
++  Power and Volume keys. Desktop navigation behavior is implemented in userspace.
++
++## External userspace integration
++
++The development installation also includes the following integration. These
++files and package recipes are **not part of this kernel repository** and must
++be reproduced separately rather than copied from the installed phone:
++
++- A persistent ext4 root on USERDATA, OpenRC startup and a BusyBox/USB rescue path.
++- Plasma Mobile 6.6.6 on native Wayland/KWin with Panfrost rendering, 3x display
++  scaling, a working on-screen keyboard and cursor hiding during touch use.
++- A dark AMOLED-friendly theme and automatic screen blanking after two minutes,
++  with touch wake. This is framebuffer blanking, not electrical panel power-off.
++- NetworkManager, BlueZ and restricted desktop policies so the mobile user can
++  control Wi-Fi/Bluetooth. Wi-Fi reconnect restores the address-bound SSH listener;
++  USB SSH remains a separate rescue channel. SSH password login stays disabled.
++- Physical-key navigation, volume control, optional key backlight handling and a
++  long-Power menu. A local credential-checked broker accepts only fixed shutdown,
++  normal reboot and recovery actions after filesystem preparation.
++- Removal of the bottom navigation panel, Back handling for panels/keyboard/
++  terminal, and an installed fix for the Power wake/blank race. The latest UI
++  adjustments still need explicit physical feedback on the cleaned candidate.
++- Guarded on-demand CPU policy with a 200 MHz minimum and higher cool-state
++  ceilings; thermal limits always take precedence over requested boosts.
++- Distinct administrator/user authentication, password-protected sudo and
++  fastfetch. No account passwords, SSH identities or Wi-Fi settings are shipped
++  in this source tree.
++
++## Hardware and system status
++
++“Working” means observed on the development hardware with the required external
++configuration/firmware. It is not a promise that the kernel alone enables the
++feature, or that every power state and error path has been qualified.
++
++| Feature | Status | Evidence and limitations |
++| --- | --- | --- |
++| Boot to Linux | Working | Requires the matching DTB, initramfs and loader; cleanup still needs hardware regression testing. |
++| USB serial rescue console | Working | CDC ACM in Linux; ADB is provided by TWRP, not this Linux gadget. |
++| USB networking and SSH | Working | Requires gadget and SSH userspace configuration. |
++| UFS and persistent root filesystem | Working | USERDATA/ext4 tested; recovery roundtrips observed. |
++| Four Cortex-A53 + four Cortex-A57 CPUs | Working with thermal limits | All eight brought online; thermal policy can park six cores. |
++| CPU frequency scaling | Working with limits | Bounded transitions tested; full ASV tuning and sustained-load qualification remain. |
++| Cross-CPU timekeeping | Working in tested configuration | Physical-counter workaround; direct vDSO counter reads disabled. |
++| Battery and charger temperatures | Working | ADC/NTC measurements with board-specific tables. |
++| SoC temperature and automatic cooling | Working with limits | TMU monitoring, frequency caps and core parking observed; this is not complete hardware-trip qualification. |
++| Battery percentage/voltage/current | Working | Read-only telemetry; depends on inherited fuel-gauge state. |
++| Active charging control | Not implemented | Firmware settings are preserved; telemetry is not charger management. |
++| Wi-Fi | Working | BCM4358 over PCIe; association, reconnect and wireless SSH tested. |
++| Bluetooth | Working with limits | Firmware initialization, hci0 and scanning tested; pairing/audio profiles not qualified. |
++| Display scanout | Working with limits | Firmware-initialized framebuffer through simpledrm; native panel lifecycle is not implemented. |
++| GPU acceleration | Working with known faults | Panfrost rendering improves Plasma; intermittent scheduler timeouts remain. |
++| Touchscreen and on-screen keyboard | Working | Physical touch/drag and keyboard input confirmed with Plasma userspace. |
++| Home, Power, Volume, Back and Recents | Working with mapping caveats | Physical events confirmed; latest Back/wake/menu adjustments require further UI feedback. |
++| Capacitive key backlight | Implemented, partially verified | LED/regulator path exists; visual operation still needs explicit confirmation. |
++| GUI Wi-Fi/Bluetooth controls | Working in configured userspace | NetworkManager, BlueZ, D-Bus and policy configuration required. |
++| Normal reboot and reboot to TWRP | Working | Userspace-controlled clean restart paths tested. |
++| Physical power-off | Not hardware-qualified | Syscon driver registered in SYSTEM2; actual power cut not tested. |
++| Screen blanking | Partial | Black framebuffer/DPMS path works; panel power and refresh remain active. |
++| Suspend and GPU runtime power management | Not implemented | No deep-idle battery-life claim. |
++| Speaker, microphone and audio routing | Not validated | No functional audio claim. |
++| Cellular modem, calls and mobile data | Not implemented/validated | WLAN root complex does not initialize the modem controller. |
++| Cameras, fingerprint, NFC and other sensors | Not validated | No support claim from this bring-up. |
++
++## Building and release limitations
++
++Use the included `arch/arm64/configs/zerolte_defconfig` and the matching external
++device tree. The defconfig reproduces the configuration used for publication
++validation, including `CONFIG_WERROR=y`. Build outside the source checkout:
++
++```sh
++make O=../build-zerolte ARCH=arm64 LLVM=1 zerolte_defconfig
++make O=../build-zerolte ARCH=arm64 LLVM=1 -j4 Image
++```
++
++Keep at least **12 GiB free** and record exact tool versions and image hashes.
++Validation used Clang/LLD 18.1.3: the complete Image builds with the standard
++upstream warning set and warnings treated as errors. All 22 modified C objects
++also build with `W=1` and `CONFIG_WERROR=y`. Global `W=1` is not claimed clean:
++unmodified ARM64 syscall tables intentionally override fallback initializers and
++trigger that extra diagnostic. The upstream warning configuration is unchanged.
++Do not infer an end-to-end installer from kernel compilation alone.
++
++Bindings and DT clock IDs belong in a separate commit before the implementation
++commit. This keeps each patch reviewable and satisfies the kernel's binding patch
++separation checks. See the local validation report for the exact build command,
++configuration hash, compiler version and diagnostic logs.
++
++The device-specific fixes remain experimental. Before publishing a bootable
++release, rebuild the initramfs/rootfs from clean recipes, verify firmware source
++and redistribution terms, and test the new artifacts on authorized hardware.
++Keep a recovery path and a local BOOT backup. Do not repartition the device or
++write RECOVERY, EFS, modem or unrelated partitions as part of this port.
++
++## Privacy and contribution provenance
++
++Do not commit installed root filesystems, raw BOOT backups, private SSH keys,
++authorized keys, Wi-Fi profiles, passwords/hashes, machine IDs or hardware-specific
++installation identities. Generate credentials and host identities per install.
++No credentials or personalized network configuration are needed in this document.
++
++Development has substantial AI assistance. This is an independent downstream
++experiment. Nura's current contribution policy does not accept code generated
++fully or partly with generative AI; this tree must not be represented as an
++accepted upstream Nura contribution or have its provenance concealed.
+diff --git a/arch/arm64/configs/zerolte_defconfig b/arch/arm64/configs/zerolte_defconfig
+new file mode 100644
+index 0000000000000000000000000000000000000000..b1e9802958a79a27f7ecc06105eb9f13e944faad
+--- /dev/null
++++ b/arch/arm64/configs/zerolte_defconfig
+@@ -0,0 +1,189 @@
++CONFIG_WERROR=y
++CONFIG_LOCALVERSION="-zerolte-publication1"
++# CONFIG_LOCALVERSION_AUTO is not set
++# CONFIG_CROSS_MEMORY_ATTACH is not set
++# CONFIG_CPU_ISOLATION is not set
++# CONFIG_SCHED_CACHE is not set
++CONFIG_BLK_DEV_INITRD=y
++CONFIG_CC_OPTIMIZE_FOR_SIZE=y
++CONFIG_EXPERT=y
++# CONFIG_FHANDLE is not set
++# CONFIG_BUG is not set
++# CONFIG_AIO is not set
++# CONFIG_IO_URING is not set
++# CONFIG_ADVISE_SYSCALLS is not set
++# CONFIG_MEMBARRIER is not set
++# CONFIG_RSEQ is not set
++# CONFIG_CACHESTAT_SYSCALL is not set
++CONFIG_ARCH_EXYNOS=y
++# CONFIG_AMPERE_ERRATUM_AC03_CPU_38 is not set
++# CONFIG_AMPERE_ERRATUM_AC04_CPU_23 is not set
++# CONFIG_ARM64_ERRATUM_826319 is not set
++# CONFIG_ARM64_ERRATUM_827319 is not set
++# CONFIG_ARM64_ERRATUM_824069 is not set
++# CONFIG_ARM64_ERRATUM_819472 is not set
++# CONFIG_ARM64_ERRATUM_832075 is not set
++# CONFIG_ARM64_ERRATUM_1024718 is not set
++# CONFIG_ARM64_ERRATUM_1165522 is not set
++# CONFIG_ARM64_ERRATUM_1319367 is not set
++# CONFIG_ARM64_ERRATUM_1530923 is not set
++# CONFIG_ARM64_ERRATUM_1463225 is not set
++# CONFIG_ARM64_ERRATUM_1508412 is not set
++# CONFIG_ARM64_ERRATUM_2051678 is not set
++# CONFIG_ARM64_ERRATUM_2077057 is not set
++# CONFIG_ARM64_ERRATUM_2658417 is not set
++# CONFIG_ARM64_ERRATUM_2054223 is not set
++# CONFIG_ARM64_ERRATUM_2067961 is not set
++# CONFIG_ARM64_ERRATUM_2645198 is not set
++# CONFIG_ARM64_ERRATUM_2966298 is not set
++# CONFIG_ARM64_ERRATUM_3117295 is not set
++# CONFIG_ARM64_ERRATUM_3194386 is not set
++# CONFIG_ARM64_ERRATUM_4311569 is not set
++# CONFIG_ARM64_ERRATUM_4118414 is not set
++# CONFIG_CAVIUM_ERRATUM_22375 is not set
++# CONFIG_CAVIUM_ERRATUM_23154 is not set
++# CONFIG_CAVIUM_ERRATUM_27456 is not set
++# CONFIG_CAVIUM_ERRATUM_30115 is not set
++# CONFIG_CAVIUM_TX2_ERRATUM_219 is not set
++# CONFIG_FUJITSU_ERRATUM_010001 is not set
++# CONFIG_HISILICON_ERRATUM_161600802 is not set
++# CONFIG_HISILICON_ERRATUM_162100801 is not set
++# CONFIG_HISILICON_ERRATUM_162100125 is not set
++# CONFIG_QCOM_FALKOR_ERRATUM_1003 is not set
++# CONFIG_QCOM_FALKOR_ERRATUM_1009 is not set
++# CONFIG_QCOM_QDF2400_ERRATUM_0065 is not set
++# CONFIG_QCOM_FALKOR_ERRATUM_E1041 is not set
++# CONFIG_NVIDIA_CARMEL_CNP_ERRATUM is not set
++# CONFIG_ROCKCHIP_ERRATUM_3568002 is not set
++# CONFIG_ROCKCHIP_ERRATUM_3588001 is not set
++# CONFIG_SOCIONEXT_SYNQUACER_PREITS is not set
++CONFIG_HOTPLUG_CPU=y
++# CONFIG_UNMAP_KERNEL_AT_EL0 is not set
++# CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY is not set
++# CONFIG_ARM64_TAGGED_ADDR_ABI is not set
++# CONFIG_ARM64_HW_AFDBM is not set
++# CONFIG_ARM64_RAS_EXTN is not set
++# CONFIG_ARM64_CNP is not set
++# CONFIG_ARM64_PTR_AUTH is not set
++# CONFIG_ARM64_AMU_EXTN is not set
++# CONFIG_ARM64_TLB_RANGE is not set
++# CONFIG_ARM64_BTI is not set
++# CONFIG_ARM64_E0PD is not set
++# CONFIG_ARM64_EPAN is not set
++# CONFIG_ARM64_POE is not set
++# CONFIG_ARM64_GCS is not set
++# CONFIG_ARM64_SVE is not set
++# CONFIG_RELOCATABLE is not set
++# CONFIG_EFI is not set
++# CONFIG_SUSPEND is not set
++CONFIG_CPU_FREQ=y
++CONFIG_CPU_FREQ_DEFAULT_GOV_USERSPACE=y
++CONFIG_CPU_FREQ_GOV_ONDEMAND=y
++CONFIG_CPUFREQ_DT=y
++# CONFIG_SCHED_SMT is not set
++# CONFIG_SCHED_CLUSTER is not set
++# CONFIG_SCHED_MC is not set
++# CONFIG_SECCOMP is not set
++# CONFIG_STACKPROTECTOR is not set
++# CONFIG_RANDOMIZE_KSTACK_OFFSET is not set
++CONFIG_PARTITION_ADVANCED=y
++# CONFIG_COREDUMP is not set
++# CONFIG_COMPAT_BRK is not set
++# CONFIG_COMPACTION is not set
++# CONFIG_ZONE_DMA is not set
++# CONFIG_ZONE_DMA32 is not set
++# CONFIG_VM_EVENT_COUNTERS is not set
++# CONFIG_SECRETMEM is not set
++CONFIG_NET=y
++CONFIG_PACKET=y
++CONFIG_UNIX=y
++CONFIG_INET=y
++# CONFIG_IPV6 is not set
++CONFIG_BT=y
++CONFIG_BT_HCIUART=y
++CONFIG_BT_HCIUART_BCM=y
++CONFIG_CFG80211=y
++CONFIG_RFKILL=y
++CONFIG_PCI=y
++CONFIG_PCIEPORTBUS=y
++CONFIG_PCI_EXYNOS=y
++CONFIG_DEVTMPFS=y
++CONFIG_DEVTMPFS_MOUNT=y
++# CONFIG_STANDALONE is not set
++# CONFIG_PREVENT_FIRMWARE_BUILD is not set
++# CONFIG_ALLOW_DEV_COREDUMP is not set
++# CONFIG_ARM_SMCCC_SOC_ID is not set
++CONFIG_BLK_DEV_LOOP=y
++CONFIG_SCSI=y
++CONFIG_BLK_DEV_SD=y
++CONFIG_NETDEVICES=y
++CONFIG_BRCMFMAC=y
++CONFIG_BRCMFMAC_PCIE=y
++CONFIG_INPUT_EVDEV=y
++CONFIG_KEYBOARD_GPIO=y
++CONFIG_INPUT_TOUCHSCREEN=y
++CONFIG_TOUCHSCREEN_S6_FTS_PILOT=y
++CONFIG_SERIAL_AMBA_PL011=y
++CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
++CONFIG_SERIAL_SAMSUNG=y
++CONFIG_SERIAL_SAMSUNG_CONSOLE=y
++CONFIG_SERIAL_DEV_BUS=y
++# CONFIG_HW_RANDOM is not set
++# CONFIG_DEVMEM is not set
++# CONFIG_DEVPORT is not set
++CONFIG_I2C_CHARDEV=y
++CONFIG_POWER_RESET_SYSCON=y
++CONFIG_POWER_RESET_SYSCON_POWEROFF=y
++CONFIG_SYSCON_REBOOT_MODE=y
++CONFIG_BATTERY_S6_MAX77843_RO=y
++CONFIG_S6_TMU_OBSERVE=y
++CONFIG_THERMAL=y
++CONFIG_CPU_THERMAL=y
++CONFIG_THERMAL_EMULATION=y
++# CONFIG_EXYNOS_THERMAL is not set
++CONFIG_MFD_MAX77843=y
++CONFIG_MFD_SEC_I2C=y
++CONFIG_REGULATOR=y
++CONFIG_REGULATOR_S2MPS11=y
++CONFIG_REGULATOR_S6_TSP_AVDD=y
++CONFIG_DRM=y
++CONFIG_DRM_PANFROST=y
++CONFIG_S6_G3D_PILOT=y
++CONFIG_DRM_SIMPLEDRM=y
++CONFIG_FB=y
++CONFIG_USB_DWC3=y
++CONFIG_USB_GADGET=y
++CONFIG_USB_CONFIGFS=y
++CONFIG_USB_CONFIGFS_ACM=y
++CONFIG_USB_CONFIGFS_ECM=y
++CONFIG_SCSI_UFSHCD=y
++CONFIG_SCSI_UFSHCD_PLATFORM=y
++CONFIG_SCSI_UFS_EXYNOS=y
++CONFIG_NEW_LEDS=y
++CONFIG_LEDS_CLASS=y
++# CONFIG_VIRTIO_MENU is not set
++# CONFIG_VHOST_MENU is not set
++# CONFIG_SURFACE_PLATFORMS is not set
++# CONFIG_ARM64_PLATFORM_DEVICES is not set
++# CONFIG_ARM_ARCH_TIMER_EVTSTREAM is not set
++# CONFIG_FSL_ERRATUM_A008585 is not set
++# CONFIG_HISILICON_ERRATUM_161010101 is not set
++# CONFIG_ARM64_ERRATUM_858921 is not set
++CONFIG_EXTCON=y
++CONFIG_EXTCON_MAX77843=y
++CONFIG_IIO=y
++CONFIG_EXYNOS_ADC=y
++CONFIG_PHY_SAMSUNG_UFS=y
++CONFIG_EXT4_FS=y
++# CONFIG_DNOTIFY is not set
++CONFIG_TMPFS=y
++# CONFIG_MISC_FILESYSTEMS is not set
++# CONFIG_CRC_OPTIMIZATIONS is not set
++CONFIG_FONTS=y
++# CONFIG_SYMBOLIC_ERRNAME is not set
++# CONFIG_DEBUG_MISC is not set
++# CONFIG_SECTION_MISMATCH_WARN_ONLY is not set
++CONFIG_DEBUG_FS=y
++# CONFIG_RCU_TRACE is not set
++# CONFIG_FTRACE is not set
++# CONFIG_RUNTIME_TESTING_MENU is not set
+diff --git a/drivers/bluetooth/btbcm.c b/drivers/bluetooth/btbcm.c
+index 463d59890befe51c31bbb8135b1d2198ec47b17f..e7b8aa0978cb405a4e95cd876a37ea8c7d80db39 100644
+--- a/drivers/bluetooth/btbcm.c
++++ b/drivers/bluetooth/btbcm.c
+@@ -491,6 +491,7 @@ struct bcm_subver_table {
+ };
+ 
+ static const struct bcm_subver_table bcm_uart_subver_table[] = {
++	{ 0x240f, "BCM4358A3"	},	/* 001.004.015 */
+ 	{ 0x1111, "BCM4362A2"	},	/* 000.017.017 */
+ 	{ 0x4103, "BCM4330B1"	},	/* 002.001.003 */
+ 	{ 0x410d, "BCM4334B0"	},	/* 002.001.013 */
+diff --git a/drivers/bluetooth/hci_bcm.c b/drivers/bluetooth/hci_bcm.c
+index cc419e1960de5623eecedf2062cc2c8d6c3e8e9c..dcef54119995a54f928169cbe548369381e1d410 100644
+--- a/drivers/bluetooth/hci_bcm.c
++++ b/drivers/bluetooth/hci_bcm.c
+@@ -1569,6 +1569,11 @@ static struct bcm_device_data bcm4354_device_data = {
+ 	.no_early_set_baudrate = true,
+ };
+ 
++/* Reset before changing the vendor baud rate, matching BCM4354 ordering. */
++static struct bcm_device_data bcm4358_device_data = {
++	.no_early_set_baudrate = true,
++};
++
+ static struct bcm_device_data bcm43438_device_data = {
+ 	.drive_rts_on_open = true,
+ };
+@@ -1593,6 +1598,8 @@ static const struct of_device_id bcm_bluetooth_of_match[] = {
+ 	{ .compatible = "brcm,bcm4349-bt", .data = &bcm43438_device_data },
+ 	{ .compatible = "brcm,bcm43540-bt", .data = &bcm4354_device_data },
+ 	{ .compatible = "brcm,bcm4335a0" },
++	/* BCM4358 uses the generic Broadcom H4 setup at 115200 baud. */
++	{ .compatible = "brcm,bcm4358-bt", .data = &bcm4358_device_data },
+ 	{ .compatible = "cypress,cyw4373a0-bt", .data = &cyw4373a0_device_data },
+ 	{ .compatible = "infineon,cyw55572-bt", .data = &cyw55572_device_data },
+ 	{ },
+diff --git a/drivers/clk/samsung/Makefile b/drivers/clk/samsung/Makefile
+index b3c4ef4e0dbff40393c1655c0c91d07bf9ee714c..181fc941e9048ed586f718e633419a3e5956f61d 100644
+--- a/drivers/clk/samsung/Makefile
++++ b/drivers/clk/samsung/Makefile
+@@ -33,3 +33,7 @@ obj-$(CONFIG_EXYNOS_ACPM_CLK)		+= clk-acpm.o
+ obj-$(CONFIG_S3C64XX_COMMON_CLK)	+= clk-s3c64xx.o
+ obj-$(CONFIG_S5PV210_COMMON_CLK)	+= clk-s5pv210.o clk-s5pv210-audss.o
+ obj-$(CONFIG_TESLA_FSD_COMMON_CLK)	+= clk-fsd.o
++
++obj-$(CONFIG_EXYNOS_ARM64_COMMON_CLK) += clk-zerolte-apollo.o
++
++obj-$(CONFIG_EXYNOS_ARM64_COMMON_CLK) += clk-zerolte-atlas.o
+diff --git a/drivers/clk/samsung/clk-cpu.c b/drivers/clk/samsung/clk-cpu.c
+index ffc33e5decf540e8cc77bd0cb58aad2585d37b9f..38b8630540db96d7d67e4081e3dab1fba56bcceb 100644
+--- a/drivers/clk/samsung/clk-cpu.c
++++ b/drivers/clk/samsung/clk-cpu.c
+@@ -32,6 +32,7 @@
+ #include <linux/delay.h>
+ #include <linux/errno.h>
+ #include <linux/io.h>
++#include <linux/iopoll.h>
+ #include <linux/slab.h>
+ #include <linux/clk.h>
+ #include <linux/clk-provider.h>
+@@ -617,7 +618,94 @@ static int exynos_cpuclk_notifier_cb(struct notifier_block *nb,
+ 	return notifier_from_errno(err);
+ }
+ 
++/* IRQ-disabled waits must not depend on jiffies on a single-core boot. */
++static int s6_mux_wait(struct exynos_cpuclk *c, u32 expected)
++{
++	u32 v;
++
++	return readl_poll_timeout_atomic(c->base + 0x408, v,
++					 (v & 7) == expected, 1, 10000);
++}
++static int s6_div_wait(struct exynos_cpuclk *c, u32 offset, u32 mask)
++{
++	u32 v;
++
++	return readl_poll_timeout_atomic(c->base + offset, v, !(v & mask), 1,
++					 10000);
++}
++static int s6_safe_div(struct exynos_cpuclk *c, u32 div)
++{
++	u32 v = readl(c->base + 0x600);
++
++	writel((v & ~7) | (div & 7), c->base + 0x600);
++	return s6_div_wait(c, 0x700, 7);
++}
++static int s6_pre_rate(struct clk_notifier_data *n, struct exynos_cpuclk *c)
++{
++	const struct exynos_cpuclk_cfg_data *cfg = c->cfg;
++	unsigned long alt = clk_hw_get_rate(c->alt_parent), flags, div = 0;
++	u32 v;
++	int ret = 0;
++
++	while (cfg->prate * 1000 != n->new_rate) {
++		if (!cfg->prate)
++			return -EINVAL;
++		cfg++;
++	}
++	if (!alt)
++		return -EINVAL;
++	spin_lock_irqsave(c->lock, flags);
++	if (alt > n->old_rate || n->old_rate > n->new_rate) {
++		div = DIV_ROUND_UP(alt, min(n->old_rate, n->new_rate)) - 1;
++		if (div >= 8) {
++			ret = -ERANGE;
++			goto out;
++		}
++		ret = s6_safe_div(c, div);
++		if (ret)
++			goto out;
++	}
++	v = readl(c->base + 0x208);
++	writel(v | 1, c->base + 0x208);
++	ret = s6_mux_wait(c, 1);
++	if (ret)
++		goto out;
++	writel(cfg->div0 | div, c->base + 0x600);
++	ret = s6_div_wait(c, 0x700, 0x15111111);
++	if (ret)
++		goto out;
++	writel(cfg->div1, c->base + 0x604);
++	ret = s6_div_wait(c, 0x704, 0x11111111);
++out:
++	spin_unlock_irqrestore(c->lock, flags);
++	if (ret)
++		pr_err("CPU pre-rate transition failed:%d\n", ret);
++	return ret;
++}
++static int s6_post_rate(struct clk_notifier_data *n, struct exynos_cpuclk *c)
++{
++	unsigned long flags;
++	u32 v;
++	int ret;
++
++	spin_lock_irqsave(c->lock, flags);
++	v = readl(c->base + 0x208);
++	writel(v & ~1, c->base + 0x208);
++	ret = s6_mux_wait(c, 0);
++	if (!ret)
++		ret = s6_safe_div(c, 0);
++	spin_unlock_irqrestore(c->lock, flags);
++	if (ret)
++		pr_err("CPU post-rate transition failed:%d\n", ret);
++	return ret;
++}
++
+ static const struct exynos_cpuclk_chip exynos_clkcpu_chips[] = {
++	[CPUCLK_LAYOUT_E7420] = {
++		.regs = &e5433_cpuclk_regs,
++		.pre_rate_cb = s6_pre_rate,
++		.post_rate_cb = s6_post_rate,
++	},
+ 	[CPUCLK_LAYOUT_E4210] = {
+ 		.regs		= &e4210_cpuclk_regs,
+ 		.pre_rate_cb	= exynos_cpuclk_pre_rate_change,
+diff --git a/drivers/clk/samsung/clk-cpu.h b/drivers/clk/samsung/clk-cpu.h
+index 892843611b0ac3438a3b71a6ca82d395adc85f92..cab980ee035b4f3ca8e0ac8f40594803d2a28616 100644
+--- a/drivers/clk/samsung/clk-cpu.h
++++ b/drivers/clk/samsung/clk-cpu.h
+@@ -25,6 +25,7 @@ enum exynos_cpuclk_layout {
+ 	CPUCLK_LAYOUT_E5433,
+ 	CPUCLK_LAYOUT_E850_CL0,
+ 	CPUCLK_LAYOUT_E850_CL1,
++	CPUCLK_LAYOUT_E7420,
+ };
+ 
+ /**
+diff --git a/drivers/clk/samsung/clk-exynos7.c b/drivers/clk/samsung/clk-exynos7.c
+index fe0fa5bdbd4bca6921d07403637f93ba5c92208d..47c87df47e26a5730e4d0b79f72fdf17205d728b 100644
+--- a/drivers/clk/samsung/clk-exynos7.c
++++ b/drivers/clk/samsung/clk-exynos7.c
+@@ -198,9 +198,20 @@ static const struct samsung_cmu_info topc_cmu_info __initconst = {
+ 	.nr_clk_regs		= ARRAY_SIZE(topc_clk_regs),
+ };
+ 
++PNAME(s6_bus_apollo_p) = { "mout_topc_bus0_pll", "ffac_topc_bus0_pll_div2",
++			   "mout_topc_bus1_pll", "mout_topc_cc_pll" };
++static const struct samsung_mux_clock s6_topc_mux[] __initconst = {
++	MUX(0, "s6_bus_apollo", s6_bus_apollo_p, MUX_SEL_TOPC1, 8, 2),
++	MUX(0, "s6_bus_atlas", s6_bus_apollo_p, MUX_SEL_TOPC1, 4, 2)
++};
+ static void __init exynos7_clk_topc_init(struct device_node *np)
+ {
+-	samsung_cmu_register_one(np, &topc_cmu_info);
++	struct samsung_clk_provider *ctx =
++		samsung_cmu_register_one(np, &topc_cmu_info);
++
++	if (of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		samsung_clk_register_mux(ctx, s6_topc_mux,
++					 ARRAY_SIZE(s6_topc_mux));
+ }
+ 
+ CLK_OF_DECLARE(exynos7_clk_topc, "samsung,exynos7-clock-topc",
+@@ -1104,9 +1115,59 @@ static const struct samsung_cmu_info fsys1_cmu_info __initconst = {
+ 	.nr_clk_regs		= ARRAY_SIZE(fsys1_clk_regs),
+ };
+ 
++/* Zerolte WLAN gates, Samsung7420 layout. No divider/PLL changes. */
++PNAME(s6_wifi_ref_p) = { "fin_pll", "sclk_phy_fsys1" };
++PNAME(s6_wifi_tx_p) = { "fin_pll", "s6_wifi_phy_tx" };
++PNAME(s6_wifi_rx_p) = { "fin_pll", "s6_wifi_phy_rx" };
++static const struct samsung_fixed_rate_clock s6_wifi_fixed[] __initconst = {
++	FRATE(0, "s6_wifi_phy_tx", NULL, 0, 250000000),
++	FRATE(0, "s6_wifi_phy_rx", NULL, 0, 250000000)
++};
++static const struct samsung_mux_clock s6_wifi_muxes[] __initconst = {
++	MUX(0, "s6_wifi_ref_mux", s6_wifi_ref_p, MUX_SEL_FSYS11, 16, 1),
++	MUX(0, "s6_wifi_tx_mux", s6_wifi_tx_p, MUX_SEL_FSYS12, 12, 1),
++	MUX(0, "s6_wifi_rx_mux", s6_wifi_rx_p, MUX_SEL_FSYS12, 8, 1)
++};
++static const struct samsung_div_clock s6_wifi_divs[] __initconst = { DIV(
++	0, "s6_wifi_async_div", "mout_aclk_fsys1_200_user", DIV_FSYS1, 8, 2) };
++static const struct samsung_gate_clock s6_wifi_gates[] __initconst = {
++	GATE(16, "s6_wifi_bus", "mout_aclk_fsys1_200_user", ENABLE_ACLK_FSYS1,
++	     24, 0, 0),
++	GATE(17, "s6_wifi_ahb", "mout_aclk_fsys1_200_user", ENABLE_ACLK_FSYS1,
++	     13, 0, 0),
++	GATE(18, "s6_wifi_master", "mout_aclk_fsys1_200_user",
++	     ENABLE_ACLK_FSYS1, 12, 0, 0),
++	GATE(19, "s6_wifi_slave", "mout_aclk_fsys1_200_user", ENABLE_ACLK_FSYS1,
++	     11, 0, 0),
++	GATE(20, "s6_wifi_dbi", "mout_aclk_fsys1_200_user", ENABLE_ACLK_FSYS1,
++	     10, 0, 0),
++	GATE(21, "s6_wifi_pcs", "mout_aclk_fsys1_200_user", ENABLE_ACLK_FSYS1,
++	     9, 0, 0),
++	GATE(22, "s6_wifi_async", "s6_wifi_async_div", ENABLE_PCLK_FSYS1, 22, 0,
++	     0),
++	GATE(23, "s6_wifi_link", "fin_pll", ENABLE_SCLK_FSYS11, 0, 0, 0),
++	GATE(24, "s6_wifi_24m", "mout_fsys1_phyclk_sel0", ENABLE_SCLK_FSYS13,
++	     28, 0, 0),
++	GATE(25, "s6_wifi_ref", "s6_wifi_ref_mux", ENABLE_SCLK_FSYS11, 16, 0,
++	     0),
++	GATE(26, "s6_wifi_tx", "s6_wifi_tx_mux", ENABLE_SCLK_FSYS12, 12, 0, 0),
++	GATE(27, "s6_wifi_rx", "s6_wifi_rx_mux", ENABLE_SCLK_FSYS12, 8, 0, 0)
++};
+ static void __init exynos7_clk_fsys1_init(struct device_node *np)
+ {
+-	samsung_cmu_register_one(np, &fsys1_cmu_info);
++	struct samsung_clk_provider *ctx =
++		samsung_cmu_register_one(np, &fsys1_cmu_info);
++
++	if (of_machine_is_compatible("samsung,exynos7420-zerolte")) {
++		samsung_clk_register_fixed_rate(ctx, s6_wifi_fixed,
++						ARRAY_SIZE(s6_wifi_fixed));
++		samsung_clk_register_mux(ctx, s6_wifi_muxes,
++					 ARRAY_SIZE(s6_wifi_muxes));
++		samsung_clk_register_div(ctx, s6_wifi_divs,
++					 ARRAY_SIZE(s6_wifi_divs));
++		samsung_clk_register_gate(ctx, s6_wifi_gates,
++					  ARRAY_SIZE(s6_wifi_gates));
++	}
+ }
+ 
+ CLK_OF_DECLARE(exynos7_clk_fsys1, "samsung,exynos7-clock-fsys1",
+@@ -1267,24 +1328,26 @@ static const struct samsung_div_clock aud_div_clks[] __initconst = {
+ };
+ 
+ static const struct samsung_gate_clock aud_gate_clks[] __initconst = {
+-	GATE(SCLK_PCM, "sclk_pcm", "dout_sclk_pcm",
+-			ENABLE_SCLK_AUD, 27, CLK_SET_RATE_PARENT, 0),
+-	GATE(SCLK_I2S, "sclk_i2s", "dout_sclk_i2s",
+-			ENABLE_SCLK_AUD, 28, CLK_SET_RATE_PARENT, 0),
+-	GATE(0, "sclk_uart", "dout_sclk_uart", ENABLE_SCLK_AUD, 29, 0, 0),
+-	GATE(0, "sclk_slimbus", "dout_sclk_slimbus",
+-			ENABLE_SCLK_AUD, 30, 0, 0),
++	GATE(SCLK_PCM, "sclk_pcm", "dout_sclk_pcm", ENABLE_SCLK_AUD, 27,
++	     CLK_SET_RATE_PARENT, 0),
++	GATE(SCLK_I2S, "sclk_i2s", "dout_sclk_i2s", ENABLE_SCLK_AUD, 28,
++	     CLK_SET_RATE_PARENT, 0),
++	GATE(SCLK_UART_AUD, "sclk_uart", "dout_sclk_uart", ENABLE_SCLK_AUD, 29,
++	     0, 0),
++	GATE(0, "sclk_slimbus", "dout_sclk_slimbus", ENABLE_SCLK_AUD, 30, 0, 0),
+ 
+ 	GATE(0, "pclk_dbg_aud", "dout_aud_pclk_dbg", ENABLE_PCLK_AUD, 19, 0, 0),
+-	GATE(0, "pclk_gpio_aud", "dout_aclk_aud", ENABLE_PCLK_AUD, 20, 0, 0),
++	GATE(PCLK_GPIO_AUD, "pclk_gpio_aud", "dout_aclk_aud", ENABLE_PCLK_AUD,
++	     20, 0, 0),
+ 	GATE(0, "pclk_wdt1", "dout_aclk_aud", ENABLE_PCLK_AUD, 22, 0, 0),
+ 	GATE(0, "pclk_wdt0", "dout_aclk_aud", ENABLE_PCLK_AUD, 23, 0, 0),
+ 	GATE(0, "pclk_slimbus", "dout_aclk_aud", ENABLE_PCLK_AUD, 24, 0, 0),
+-	GATE(0, "pclk_uart", "dout_aclk_aud", ENABLE_PCLK_AUD, 25, 0, 0),
+-	GATE(PCLK_PCM, "pclk_pcm", "dout_aclk_aud",
+-			ENABLE_PCLK_AUD, 26, CLK_SET_RATE_PARENT, 0),
+-	GATE(PCLK_I2S, "pclk_i2s", "dout_aclk_aud",
+-			ENABLE_PCLK_AUD, 27, CLK_SET_RATE_PARENT, 0),
++	GATE(PCLK_UART_AUD, "pclk_uart", "dout_aclk_aud", ENABLE_PCLK_AUD, 25,
++	     0, 0),
++	GATE(PCLK_PCM, "pclk_pcm", "dout_aclk_aud", ENABLE_PCLK_AUD, 26,
++	     CLK_SET_RATE_PARENT, 0),
++	GATE(PCLK_I2S, "pclk_i2s", "dout_aclk_aud", ENABLE_PCLK_AUD, 27,
++	     CLK_SET_RATE_PARENT, 0),
+ 	GATE(0, "pclk_timer", "dout_aclk_aud", ENABLE_PCLK_AUD, 28, 0, 0),
+ 	GATE(0, "pclk_smmu_aud", "dout_aclk_aud", ENABLE_PCLK_AUD, 31, 0, 0),
+ 
+diff --git a/drivers/clk/samsung/clk-zerolte-apollo.c b/drivers/clk/samsung/clk-zerolte-apollo.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..755a910468267f299550515b7d620c31c385c5be
+--- /dev/null
++++ b/drivers/clk/samsung/clk-zerolte-apollo.c
+@@ -0,0 +1,83 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Zerolte APOLLO clocks. Register layout and dividers from Samsung7420;
++ * standard Samsung PLL + bounded7420 CPU clock transition callbacks.
++ */
++#include <linux/clk-provider.h>
++#include <linux/io.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include "clk.h"
++#include "clk-cpu.h"
++PNAME(s6_pll_parents) = { "fin_pll", "s6_apollo_pll" };
++PNAME(s6_alt_parents) = { "fin_pll", "s6_bus_apollo" };
++static const struct samsung_pll_rate_table s6_rates[] __initconst = {
++	PLL_35XX_RATE(24000000, 1500000000, 250, 4, 0),
++	PLL_35XX_RATE(24000000, 1000000000, 125, 3, 0),
++	PLL_35XX_RATE(24000000, 500000000, 125, 3, 1),
++	PLL_35XX_RATE(24000000, 400000000, 200, 3, 2),
++	PLL_35XX_RATE(24000000, 200000000, 200, 3, 3),
++	{}
++};
++
++static const struct samsung_pll_clock s6_plls[] __initconst = { PLL(
++	pll_1451x, 1, "s6_apollo_pll", "fin_pll", 0x0000, 0x0100, s6_rates) };
++static const struct samsung_mux_clock s6_muxes[] __initconst = {
++	MUX_F(2, "s6_apollo_pll_mux", s6_pll_parents, 0x200, 0, 1,
++	      CLK_SET_RATE_PARENT | CLK_RECALC_NEW_RATES, 0),
++	MUX(3, "s6_apollo_alt", s6_alt_parents, 0x204, 0, 1)
++};
++
++static const struct exynos_cpuclk_cfg_data s6_cfg[] __initconst = {
++	{ 1500000, 0x05555200, 0x31 }, { 1000000, 0x05555200, 0x31 },
++	{ 500000, 0x04444100, 0x21 },  { 400000, 0x03333100, 0x21 },
++	{ 200000, 0x03333100, 0x11 },  {}
++};
++
++static const struct samsung_cpu_clock s6_cpus[] __initconst = { CPU_CLK(
++	4, "s6_apolloclk", 2, 3, CLK_CPU_HAS_DIV1, 0, CPUCLK_LAYOUT_E7420,
++	s6_cfg) };
++static const unsigned long s6_regs[] __initconst = { 0x100, 0x104, 0x200, 0x204,
++						     0x208, 0x600, 0x604 };
++static const struct samsung_cmu_info s6_cmu __initconst = {
++	.pll_clks = s6_plls,
++	.nr_pll_clks = ARRAY_SIZE(s6_plls),
++	.mux_clks = s6_muxes,
++	.nr_mux_clks = ARRAY_SIZE(s6_muxes),
++	.cpu_clks = s6_cpus,
++	.nr_cpu_clks = ARRAY_SIZE(s6_cpus),
++	.nr_clk_ids = 5,
++	.clk_regs = s6_regs,
++	.nr_clk_regs = ARRAY_SIZE(s6_regs)
++};
++
++static void __init s6_apollo_init(struct device_node *np)
++{
++	void __iomem *b;
++	u32 pll, div, mux, p, m, s;
++	u64 rate;
++
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		return;
++	b = of_iomap(np, 0);
++	if (!b)
++		return;
++	pll = readl(b + 0x100);
++	div = readl(b + 0x600);
++	mux = readl(b + 0x208);
++	p = (pll >> 8) & 0x3f;
++	m = (pll >> 16) & 0x3ff;
++	s = pll & 7;
++	rate = p ? 24000000ULL * m / (p << s) : 0;
++	iounmap(b);
++	if (!(pll & BIT(31)) || !(pll & BIT(29)) || (div & 0x77) || (mux & 1) ||
++	    rate < 200000000 || rate > 1500000000) {
++		pr_err("unexpected APOLLO boot state; refusing CPU clock registration\n");
++		return;
++	}
++	samsung_cmu_register_one(np, &s6_cmu);
++	pr_info("APOLLO boot=%lluHz; supported 200/400/500/1000/1500 MHz\n",
++		rate);
++}
++
++CLK_OF_DECLARE(s6_apollo, "samsung,zerolte-apollo-clock", s6_apollo_init);
+diff --git a/drivers/clk/samsung/clk-zerolte-atlas.c b/drivers/clk/samsung/clk-zerolte-atlas.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..7f588af5d6f56be8a94c5be3f1172c7268d2c57c
+--- /dev/null
++++ b/drivers/clk/samsung/clk-zerolte-atlas.c
+@@ -0,0 +1,128 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Zerolte ATLAS clocks. Register layout and dividers from Samsung7420;
++ * standard Samsung PLL + bounded7420 CPU clock transition callbacks.
++ */
++#include <linux/clk-provider.h>
++#include <linux/clk.h>
++#include <linux/smp.h>
++#include <linux/io.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include "clk.h"
++#include "clk-cpu.h"
++PNAME(s6_pll_parents) = { "fin_pll", "s6_atlas_pll" };
++PNAME(s6_alt_parents) = { "fin_pll", "s6_bus_atlas" };
++static const struct samsung_pll_rate_table s6_rates[] __initconst = {
++	PLL_35XX_RATE(24000000, 1000000000, 250, 3, 1),
++	PLL_35XX_RATE(24000000, 800000000, 200, 3, 1),
++	PLL_35XX_RATE(24000000, 500000000, 250, 3, 2),
++	PLL_35XX_RATE(24000000, 400000000, 200, 3, 2),
++	PLL_35XX_RATE(24000000, 200000000, 200, 3, 3),
++	{}
++};
++
++static const struct samsung_pll_clock s6_plls[] __initconst = { PLL(
++	pll_1450x, 1, "s6_atlas_pll", "fin_pll", 0x0000, 0x0100, s6_rates) };
++static const struct samsung_mux_clock s6_muxes[] __initconst = {
++	MUX_F(2, "s6_atlas_pll_mux", s6_pll_parents, 0x200, 0, 1,
++	      CLK_SET_RATE_PARENT | CLK_RECALC_NEW_RATES, 0),
++	MUX(3, "s6_atlas_alt", s6_alt_parents, 0x204, 0, 1)
++};
++
++static const struct exynos_cpuclk_cfg_data s6_cfg[] __initconst = {
++	{ 1000000, 0x18606100, 0x631 }, { 800000, 0x14505100, 0x531 },
++	{ 500000, 0x0c303100, 0x321 },	{ 400000, 0x0c303100, 0x321 },
++	{ 200000, 0x0c303100, 0x311 },	{}
++};
++
++static const struct samsung_cpu_clock s6_cpus[] __initconst = { CPU_CLK(
++	4, "s6_atlasclk", 2, 3, CLK_CPU_HAS_DIV1, 0, CPUCLK_LAYOUT_E7420,
++	s6_cfg) };
++static const unsigned long s6_regs[] __initconst = { 0x100, 0x104, 0x200, 0x204,
++						     0x208, 0x600, 0x604 };
++static const struct samsung_cmu_info s6_cmu __initconst = {
++	.pll_clks = s6_plls,
++	.nr_pll_clks = ARRAY_SIZE(s6_plls),
++	.mux_clks = s6_muxes,
++	.nr_mux_clks = ARRAY_SIZE(s6_muxes),
++	.cpu_clks = s6_cpus,
++	.nr_cpu_clks = ARRAY_SIZE(s6_cpus),
++	.nr_clk_ids = 5,
++	.clk_regs = s6_regs,
++	.nr_clk_regs = ARRAY_SIZE(s6_regs)
++};
++
++static void __init s6_atlas_init(struct device_node *np)
++{
++	void __iomem *b;
++	u32 pll, div, mux, p, m, s;
++	u64 rate;
++
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		return;
++	b = of_iomap(np, 0);
++	if (!b)
++		return;
++	pll = readl(b + 0x100);
++	div = readl(b + 0x600);
++	mux = readl(b + 0x208);
++	p = (pll >> 8) & 0x3f;
++	m = (pll >> 16) & 0x3ff;
++	s = pll & 7;
++	rate = p ? 24000000ULL * m / (p << s) : 0;
++	iounmap(b);
++	if (!(pll & BIT(31)) || !(pll & BIT(29)) || (div & 0x77) || (mux & 1) ||
++	    rate < 200000000 || rate > 2500000000) {
++		pr_err("unexpected ATLAS boot state; refusing CPU clock registration\n");
++		return;
++	}
++	samsung_cmu_register_one(np, &s6_cmu);
++	pr_info("ATLAS boot=%lluHz; supported 200/400/500/800/1000 MHz\n",
++		rate);
++}
++
++CLK_OF_DECLARE(s6_atlas, "samsung,zerolte-atlas-clock", s6_atlas_init);
++
++/*
++ * early_initcall precedes smp_init, while every provider from of_clk_init exists.
++ * Samsung500MHz is below the inherited stock operating point; no voltage reduction.
++ * If the clamp cannot be verified, retain the single-core rescue boot.
++ */
++static int __init s6_early_cluster_clamp(void)
++{
++	static const char *const names[] = { "samsung,zerolte-apollo-clock",
++					     "samsung,zerolte-atlas-clock" };
++	struct of_phandle_args spec = { .args_count = 1, .args = { 4 } };
++	struct clk *clk;
++	int i, r;
++
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		return 0;
++	for (i = 0; i < 2; i++) {
++		spec.np = of_find_compatible_node(NULL, NULL, names[i]);
++		if (!spec.np) {
++			r = -ENODEV;
++			goto fail;
++		}
++		clk = of_clk_get_from_provider(&spec);
++		of_node_put(spec.np);
++		if (IS_ERR(clk)) {
++			r = PTR_ERR(clk);
++			goto fail;
++		}
++		r = clk_set_rate(clk, 500000000);
++		if (!r && clk_get_rate(clk) != 500000000)
++			r = -EIO;
++		clk_put(clk);
++		if (r)
++			goto fail;
++	}
++	pr_info("pre-SMP APOLLO/ATLAS500MHz verified; normal capability discovery on all CPUs\n");
++	return 0;
++fail:
++	setup_max_cpus = 1;
++	pr_err("pre-SMP clock clamp failed %d; forced single-core rescue\n", r);
++	return r;
++}
++early_initcall(s6_early_cluster_clamp);
+diff --git a/drivers/clocksource/arm_arch_timer.c b/drivers/clocksource/arm_arch_timer.c
+index 7b4a98df6962b766445c076bbc2efa6fea409477..739d285f3fa244ae032a6d31a6f3cb97d8065f8f 100644
+--- a/drivers/clocksource/arm_arch_timer.c
++++ b/drivers/clocksource/arm_arch_timer.c
+@@ -41,6 +41,8 @@
+ #define MIN_ROLLOVER_SECS	(40ULL * 365 * 24 * 3600)
+ 
+ static u32 arch_timer_rate __ro_after_init;
++/* Zerolte firmware can leave different CNTVOFF values on secondary CPUs. */
++static bool zerolte_phys_counter __ro_after_init;
+ static int arch_timer_ppi[ARCH_TIMER_MAX_TIMER_PPI] __ro_after_init;
+ 
+ static const char *arch_timer_ppi_names[ARCH_TIMER_MAX_TIMER_PPI] = {
+@@ -799,7 +801,7 @@ static void arch_counter_set_user_access(void)
+ 	 */
+ 	if (arch_timer_this_cpu_has_cntvct_wa())
+ 		pr_info("CPU%d: Trapping CNTVCT access\n", smp_processor_id());
+-	else
++	else if (!zerolte_phys_counter)
+ 		cntkctl |= ARCH_TIMER_USR_VCT_ACCESS_EN;
+ 
+ 	arch_timer_set_cntkctl(cntkctl);
+@@ -912,9 +914,10 @@ static void __init arch_counter_register(void)
+ 	u64 start_count;
+ 	int width;
+ 
+-	if ((IS_ENABLED(CONFIG_ARM64) && !is_hyp_mode_available()) ||
+-	    arch_timer_uses_ppi == ARCH_TIMER_VIRT_PPI ||
+-	    arch_timer_uses_ppi == ARCH_TIMER_HYP_VIRT_PPI) {
++	if (!zerolte_phys_counter &&
++	    ((IS_ENABLED(CONFIG_ARM64) && !is_hyp_mode_available()) ||
++	     arch_timer_uses_ppi == ARCH_TIMER_VIRT_PPI ||
++	     arch_timer_uses_ppi == ARCH_TIMER_HYP_VIRT_PPI)) {
+ 		if (arch_timer_counter_has_wa()) {
+ 			rd = arch_counter_get_cntvct_stable;
+ 			scr = raw_counter_get_cntvct_stable;
+@@ -933,6 +936,8 @@ static void __init arch_counter_register(void)
+ 	}
+ 
+ 	arch_timer_read_counter = rd;
++	if (zerolte_phys_counter)
++		pr_info("physical system counter; VDSO direct counter disabled\n");
+ 	clocksource_counter.vdso_clock_mode = vdso_default;
+ 
+ 	width = arch_counter_get_width();
+@@ -1171,6 +1176,11 @@ static int __init arch_timer_of_init(struct device_node *np)
+ 		return 0;
+ 	}
+ 
++	if (of_machine_is_compatible("samsung,exynos7420-zerolte") &&
++	    of_property_read_bool(np, "samsung,zerolte-physical-counter")) {
++		zerolte_phys_counter = true;
++		vdso_default = VDSO_CLOCKMODE_NONE;
++	}
+ 	has_names = of_property_present(np, "interrupt-names");
+ 
+ 	for (i = ARCH_TIMER_PHYS_SECURE_PPI; i < ARCH_TIMER_MAX_TIMER_PPI; i++) {
+@@ -1196,9 +1206,10 @@ static int __init arch_timer_of_init(struct device_node *np)
+ 	 * If we cannot rely on firmware initializing the timer registers then
+ 	 * we should use the physical timers instead.
+ 	 */
+-	if (IS_ENABLED(CONFIG_ARM) &&
+-	    of_property_read_bool(np, "arm,cpu-registers-not-fw-configured"))
+-		arch_timer_uses_ppi = ARCH_TIMER_PHYS_SECURE_PPI;
++	if (of_property_read_bool(np, "arm,cpu-registers-not-fw-configured"))
++		arch_timer_uses_ppi = IS_ENABLED(CONFIG_ARM64) ?
++					      ARCH_TIMER_PHYS_NONSECURE_PPI :
++					      ARCH_TIMER_PHYS_SECURE_PPI;
+ 	else
+ 		arch_timer_uses_ppi = arch_timer_select_ppi();
+ 
+diff --git a/drivers/cpufreq/Makefile b/drivers/cpufreq/Makefile
+index 6c7a39b7f8d26ecd0a6836883d218b67902306b7..fcb134fc6e421668fc73a6dbdd59d91de3c3a088 100644
+--- a/drivers/cpufreq/Makefile
++++ b/drivers/cpufreq/Makefile
+@@ -104,3 +104,5 @@ obj-$(CONFIG_LOONGSON3_CPUFREQ)		+= loongson3_cpufreq.o
+ obj-$(CONFIG_SH_CPU_FREQ)		+= sh-cpufreq.o
+ obj-$(CONFIG_SPARC_US2E_CPUFREQ)	+= sparc-us2e-cpufreq.o
+ obj-$(CONFIG_SPARC_US3_CPUFREQ)		+= sparc-us3-cpufreq.o
++
++obj-$(CONFIG_CPUFREQ_DT) += s6-atlas-prepare.o
+diff --git a/drivers/cpufreq/s6-atlas-prepare.c b/drivers/cpufreq/s6-atlas-prepare.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..2cf1af239a800c2be8fa6908e99e0535b3984806
+--- /dev/null
++++ b/drivers/cpufreq/s6-atlas-prepare.c
+@@ -0,0 +1,94 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* Prepare the dormant ATLAS cluster before the first PSCI CPU_ON. */
++#include <linux/clk.h>
++#include <linux/cpu.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regulator/consumer.h>
++struct s6_atlas {
++	struct clk *clk;
++	struct regulator *supply;
++	void __iomem *base;
++	bool ready;
++};
++
++static ssize_t ready_show(struct device *dev, struct device_attribute *a,
++			  char *buf)
++{
++	struct s6_atlas *d = dev_get_drvdata(dev);
++	int cpu;
++	bool active = false;
++
++	for (cpu = 1; cpu <= 4; cpu++)
++		if (cpu_online(cpu))
++			active = true;
++	if (!active)
++		return sysfs_emit(buf, "ready=%u cluster_offline=1\n",
++				  d->ready);
++	return sysfs_emit(
++		buf,
++		"ready=%u rate=%lu microvolts=%d pll=%08x mux=%08x stat=%08x div0=%08x div1=%08x\n",
++		d->ready, clk_get_rate(d->clk),
++		regulator_get_voltage(d->supply), readl(d->base + 0x100),
++		readl(d->base + 0x208), readl(d->base + 0x408),
++		readl(d->base + 0x600), readl(d->base + 0x604));
++}
++
++static DEVICE_ATTR_RO(ready);
++static int s6_atlas_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct s6_atlas *d;
++	int ret;
++
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		return -ENODEV;
++
++	d = devm_kzalloc(dev, sizeof(*d), GFP_KERNEL);
++	if (!d)
++		return -ENOMEM;
++	d->clk = devm_clk_get(dev, NULL);
++	if (IS_ERR(d->clk))
++		return dev_err_probe(dev, PTR_ERR(d->clk), "ATLAS clock\n");
++	d->supply = devm_regulator_get(dev, "cpu");
++	if (IS_ERR(d->supply))
++		return dev_err_probe(dev, PTR_ERR(d->supply), "ATLAS supply\n");
++	d->base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(d->base))
++		return PTR_ERR(d->base);
++	/*
++	 * Early clamp already ran before SMP; this driver only verifies and
++	 * adds a supply range constraint after the real regulator becomes available.
++	 */
++	if (clk_get_rate(d->clk) != 500000000)
++		return -EIO;
++	ret = regulator_set_voltage(d->supply, 1000000, 1050000);
++	if (ret)
++		return ret;
++	if (regulator_get_voltage(d->supply) < 1000000)
++		return -EIO;
++	d->ready = true;
++	platform_set_drvdata(pdev, d);
++	ret = device_create_file(dev, &dev_attr_ready);
++	if (ret)
++		return ret;
++	dev_dbg(dev,
++		"dormant cluster ready at500MHz/1.00V; no CPUs automatically enabled\n");
++	return 0;
++}
++
++static const struct of_device_id s6_atlas_match[] = {
++	{ .compatible = "samsung,zerolte-atlas-prepare" },
++	{}
++};
++
++static struct platform_driver s6_atlas_driver = {
++	.probe = s6_atlas_probe,
++	.driver = { .name = "s6-atlas-prepare",
++		    .of_match_table = s6_atlas_match }
++};
++
++module_platform_driver(s6_atlas_driver);
++MODULE_LICENSE("GPL");
+diff --git a/drivers/extcon/extcon-max77843.c b/drivers/extcon/extcon-max77843.c
+index 2ae9f7f1a67fc2052ed1eb94ed234f79e549dbbc..cb3a7d1de2d3185362fb2c490a9ad1bdc3cba1db 100644
+--- a/drivers/extcon/extcon-max77843.c
++++ b/drivers/extcon/extcon-max77843.c
+@@ -15,6 +15,7 @@
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
+ #include <linux/workqueue.h>
++#include <linux/of.h>
+ 
+ #define DELAY_MS_DEFAULT		15000	/* unit: millisecond */
+ 
+@@ -771,7 +772,7 @@ static int max77843_muic_set_debounce_time(struct max77843_muic_info *info,
+ 
+ static int max77843_init_muic_regmap(struct max77693_dev *max77843)
+ {
+-	int ret;
++	int ret, i;
+ 
+ 	max77843->i2c_muic = i2c_new_dummy_device(max77843->i2c->adapter,
+ 			I2C_ADDR_MUIC);
+@@ -790,6 +791,17 @@ static int max77843_init_muic_regmap(struct max77693_dev *max77843)
+ 		goto err_muic_i2c;
+ 	}
+ 
++	if (of_machine_is_compatible("samsung,exynos7420-zerolte") &&
++	    of_property_read_bool(max77843->dev->of_node,
++				  "samsung,zerolte-staged-irqs")) {
++		/* MUIC masks have inverse polarity: zero masks the whole group. */
++		for (i = 0; i < 3; i++) {
++			ret = regmap_write(max77843->regmap_muic,
++					   MAX77843_MUIC_REG_INTMASK1 + i, 0);
++			if (ret)
++				goto err_muic_i2c;
++		}
++	}
+ 	ret = regmap_add_irq_chip(max77843->regmap_muic, max77843->irq,
+ 			IRQF_TRIGGER_LOW | IRQF_ONESHOT | IRQF_SHARED,
+ 			0, &max77843_muic_irq_chip, &max77843->irq_data_muic);
+@@ -914,6 +926,22 @@ static int max77843_muic_probe(struct platform_device *pdev)
+ 		}
+ 	}
+ 
++	if (of_machine_is_compatible("samsung,exynos7420-zerolte") &&
++	    of_property_read_bool(max77843->dev->of_node,
++				  "samsung,zerolte-staged-irqs")) {
++		ret = regmap_update_bits(max77843->regmap,
++					 MAX77843_SYS_REG_INTSRCMASK,
++					 MAX77843_INTSRCMASK_MUIC_MASK, 0);
++		if (ret)
++			goto err_muic_irq;
++		ret = regmap_read(max77843->regmap, MAX77843_SYS_REG_INTSRCMASK,
++				  &id);
++		if (ret)
++			goto err_muic_irq;
++		dev_dbg(info->dev, "MUIC handlers ready; source mask=0x%02x\n",
++			id);
++	}
++
+ 	/* Detect accessory after completing the initialization of platform */
+ 	INIT_DELAYED_WORK(&info->wq_detcable, max77843_muic_detect_cable_wq);
+ 	queue_delayed_work(system_power_efficient_wq,
+@@ -922,6 +950,13 @@ static int max77843_muic_probe(struct platform_device *pdev)
+ 	return 0;
+ 
+ err_muic_irq:
++	if (of_machine_is_compatible("samsung,exynos7420-zerolte") &&
++	    of_property_read_bool(max77843->dev->of_node,
++				  "samsung,zerolte-staged-irqs"))
++		regmap_update_bits(max77843->regmap,
++				   MAX77843_SYS_REG_INTSRCMASK,
++				   MAX77843_INTSRCMASK_MUIC_MASK,
++				   MAX77843_INTSRCMASK_MUIC_MASK);
+ 	regmap_del_irq_chip(max77843->irq, max77843->irq_data_muic);
+ 	i2c_unregister_device(max77843->i2c_muic);
+ 
+@@ -933,6 +968,13 @@ static void max77843_muic_remove(struct platform_device *pdev)
+ 	struct max77843_muic_info *info = platform_get_drvdata(pdev);
+ 	struct max77693_dev *max77843 = info->max77843;
+ 
++	if (of_machine_is_compatible("samsung,exynos7420-zerolte") &&
++	    of_property_read_bool(max77843->dev->of_node,
++				  "samsung,zerolte-staged-irqs"))
++		regmap_update_bits(max77843->regmap,
++				   MAX77843_SYS_REG_INTSRCMASK,
++				   MAX77843_INTSRCMASK_MUIC_MASK,
++				   MAX77843_INTSRCMASK_MUIC_MASK);
+ 	cancel_work_sync(&info->irq_work);
+ 	regmap_del_irq_chip(max77843->irq, max77843->irq_data_muic);
+ 	i2c_unregister_device(max77843->i2c_muic);
+diff --git a/drivers/gpu/drm/panfrost/Kconfig b/drivers/gpu/drm/panfrost/Kconfig
+index e6403a9d66adec323e3698aee16a8649ae51248b..b6650a8eeb73c83434dc8917271dee5d1aee85c7 100644
+--- a/drivers/gpu/drm/panfrost/Kconfig
++++ b/drivers/gpu/drm/panfrost/Kconfig
+@@ -16,3 +16,12 @@ config DRM_PANFROST
+ 	help
+ 	  DRM driver for ARM Mali Midgard (T6xx, T7xx, T8xx) and
+ 	  Bifrost (G3x, G5x, G7x) GPUs.
++
++config S6_G3D_PILOT
++	bool "Zerolte measured G3D clock and GPIO supply pilot"
++	depends on DRM_PANFROST && ARCH_EXYNOS && I2C && GPIOLIB && REGULATOR
++	help
++	  Enable the board-specific Mali-T760 clock and supply provider for
++	  the Galaxy S6 Edge. It verifies the inherited supply calibration
++	  and uses a fixed 266 MHz operating point with bounded power-on waits.
++	  GPU DVFS, runtime power-off and suspend are not supported.
+diff --git a/drivers/gpu/drm/panfrost/Makefile b/drivers/gpu/drm/panfrost/Makefile
+index 7da2b3f02ed90c526cc2770210736d67bc0cf5fc..df3ddd527109626fd669360eb5dc8cb1842f9db9 100644
+--- a/drivers/gpu/drm/panfrost/Makefile
++++ b/drivers/gpu/drm/panfrost/Makefile
+@@ -13,3 +13,5 @@ panfrost-y := \
+ 	panfrost_dump.o
+ 
+ obj-$(CONFIG_DRM_PANFROST) += panfrost.o
++
++obj-$(CONFIG_S6_G3D_PILOT) += s6-g3d-pilot.o
+diff --git a/drivers/gpu/drm/panfrost/s6-g3d-pilot.c b/drivers/gpu/drm/panfrost/s6-g3d-pilot.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..6129d49a2c55d5c554fe68fbb49aac150656c4e1
+--- /dev/null
++++ b/drivers/gpu/drm/panfrost/s6-g3d-pilot.c
+@@ -0,0 +1,411 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Zerolte GPU pilot: measured Samsung 266MHz/693750uV operating point.
++ * BUCK6 and LDO10 share GPB0-4. Keep their inherited external-control mode
++ * and DAC value intact; a real regulator GPIO holds both rails on for the pilot.
++ * Only the G3D clock's sleepable prepare operation may turn on PD_G3D.
++ * No suspend, runtime domain cycling or GPU DVFS is implemented here.
++ */
++#include <linux/clk.h>
++#include <linux/clk-provider.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/mfd/samsung/core.h>
++#include <linux/mfd/samsung/s2mps15.h>
++#include <linux/module.h>
++#include <linux/math64.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++#include <linux/regulator/driver.h>
++#include <linux/regulator/of_regulator.h>
++
++#define G3D_RATE 266000000UL
++#define G3D_UV 693750
++#define G3D_SYNC_REG 0x52 /* Samsung S2MPS15_REG_LDO_RSVD3 */
++struct s6_g3d {
++	struct device *dev;
++	void __iomem *cmu, *pmu, *topc, *ccore;
++	struct regmap *pmic;
++	struct gpio_desc *enable;
++	struct clk_hw hw;
++	struct regulator_desc supply_desc;
++	struct mutex lock;
++	bool ready;
++	int last_error, ocp_steps;
++};
++
++#define to_g3d(h) container_of(h, struct s6_g3d, hw)
++static u32 s6_update(void __iomem *p, u32 mask, u32 value)
++{
++	u32 v = readl(p);
++
++	writel((v & ~mask) | (value & mask), p);
++	return v;
++}
++
++static int s6_voltage(struct s6_g3d *d)
++{
++	unsigned int v;
++	int ret = regmap_read(d->pmic, S2MPS15_REG_B6CTRL2, &v);
++
++	if (ret)
++		return ret;
++	if (v < 0x20 || v > 0xc0)
++		return -ERANGE;
++	return 500000 + ((int)v - 0x20 - d->ocp_steps) * 6250;
++}
++
++static unsigned long s6_actual_rate(struct s6_g3d *d, unsigned long parent)
++{
++	u32 v, p, m, s, mux;
++	/* CMU_G3D is inaccessible while the domain is off. */
++	if ((readl(d->pmu + 0x4104) & 0xf) != 0xf)
++		return 0;
++	if ((readl(d->pmu + 0x6100) & BIT(0)) &&
++	    !(readl(d->pmu + 0x6104) & BIT(0)))
++		return 0;
++	v = readl(d->cmu + 0x100);
++	mux = readl(d->cmu + 0x200);
++	if ((v & (BIT(31) | BIT(29))) != (BIT(31) | BIT(29)) ||
++	    !(mux & BIT(0)) || (mux & BIT(8)) ||
++	    !(readl(d->cmu + 0x800) & BIT(0)))
++		return 0;
++	p = (v >> 8) & 0x3f;
++	m = (v >> 16) & 0x3ff;
++	s = v & 7;
++	return p ? div_u64((u64)parent * m, p << s) : 0;
++}
++
++static unsigned long s6_rate(struct clk_hw *hw, unsigned long parent)
++{
++	struct s6_g3d *d = to_g3d(hw);
++
++	return d->ready ? s6_actual_rate(d, parent) : 0;
++}
++
++static int s6_determine(struct clk_hw *hw, struct clk_rate_request *req)
++{
++	if (req->min_rate > G3D_RATE || req->max_rate < G3D_RATE)
++		return -EINVAL;
++	req->rate = G3D_RATE;
++	req->best_parent_rate = 24000000;
++	return 0;
++}
++
++static int s6_set_rate(struct clk_hw *hw, unsigned long rate,
++		       unsigned long parent)
++{
++	/* A fixed pilot operating point, backed by actual PLL readback. */
++	if (rate != G3D_RATE || parent != 24000000)
++		return -EINVAL;
++	return to_g3d(hw)->ready && s6_rate(hw, parent) == rate ? 0 : -EAGAIN;
++}
++
++static int s6_prepare(struct clk_hw *hw)
++{
++	struct s6_g3d *d = to_g3d(hw);
++	u32 v;
++	int ret = 0, i;
++	const u32 regs[] = { 0x1460, 0x14a0, 0x14e0, 0x1520, 0x1560, 0x15a0 };
++
++	mutex_lock(&d->lock);
++	if (d->ready) {
++		ret = s6_rate(hw, 24000000) == G3D_RATE ? 0 : -EIO;
++		goto out;
++	}
++	if (s6_voltage(d) != G3D_UV ||
++	    gpiod_get_value_cansleep(d->enable) != 1) {
++		ret = -EIO;
++		goto out;
++	}
++	dev_dbg(d->dev, "rails verified; begin PD_G3D power-on\n");
++	/* Samsung top-to-local and CCORE asynchronous-bridge gates. */
++	s6_update(d->topc + 0xa04, BIT(9), BIT(9));
++	s6_update(d->ccore + 0x800, BIT(22) | BIT(23), BIT(22) | BIT(23));
++	if ((readl(d->pmu + 0x4104) & 0xf) == 0) {
++		for (i = 0; i < ARRAY_SIZE(regs); i++)
++			s6_update(d->pmu + regs[i], i == 4 ? 3 : 1, 0);
++		s6_update(d->pmu + 0x4108, 0xffff, 0x1101);
++		s6_update(d->pmu + 0x4100, 0xf, 0xf);
++		ret = readl_poll_timeout(d->pmu + 0x4104, v, (v & 0xf) == 0xf,
++					 20, 100000);
++		if (ret) {
++			dev_err(d->dev,
++				"domain timeout status=%08x; no CMU/GPU access\n",
++				v);
++			goto out;
++		}
++	} else if ((readl(d->pmu + 0x4104) & 0xf) != 0xf) {
++		ret = -EIO;
++		goto out;
++	} else
++		dev_dbg(d->dev,
++			"keep inherited PD_G3D ON; no power-domain writes\n");
++	dev_dbg(d->dev,
++		"domain ON; CMU pll=%08x con1=%08x con2=%08x mux=%08x\n",
++		readl(d->cmu + 0x100), readl(d->cmu + 0x104),
++		readl(d->cmu + 0x108), readl(d->cmu + 0x200));
++	if (s6_actual_rate(d, 24000000) == G3D_RATE) {
++		d->ready = true;
++		dev_dbg(d->dev,
++			"inherited real266MHz PLL/gate verified; no PLL writes required\n");
++		goto out;
++	}
++	/* Switch the GPU mux to the 24MHz reference before changing PLL1452x. */
++	s6_update(d->cmu + 0x300, BIT(0) | BIT(8), BIT(0) | BIT(8));
++	s6_update(d->cmu + 0x200, BIT(8), BIT(8));
++	ret = readl_poll_timeout(d->cmu + 0x400, v, ((v >> 8) & 7) == 2, 10,
++				 10000);
++	if (ret)
++		goto out;
++	writel(6 * 270, d->cmu + 0x000);
++	s6_update(d->cmu + 0x100,
++		  GENMASK(25, 16) | GENMASK(13, 8) | GENMASK(2, 0) | BIT(31),
++		  (133 << 16) | (6 << 8) | 1 | BIT(31));
++	ret = readl_poll_timeout(d->cmu + 0x100, v, v & BIT(29), 10, 10000);
++	if (ret) {
++		dev_err(d->dev,
++			"PLL lock timeout; GPU mux left on reference\n");
++		goto out;
++	}
++	s6_update(d->cmu + 0x200, BIT(0), BIT(0));
++	ret = readl_poll_timeout(d->cmu + 0x400, v, (v & 7) == 2, 10, 10000);
++	if (ret)
++		goto out;
++	s6_update(d->cmu + 0x200, BIT(8), 0);
++	ret = readl_poll_timeout(d->cmu + 0x400, v, ((v >> 8) & 7) == 1, 10,
++				 10000);
++	if (ret)
++		goto out;
++	/* HPM uses the OEM divide-by-two setting; GPU itself is not divided. */
++	s6_update(d->cmu + 0x600, GENMASK(9, 8), 1 << 8);
++	ret = readl_poll_timeout(d->cmu + 0x700, v, !(v & BIT(8)), 10, 10000);
++	if (ret)
++		goto out;
++	s6_update(d->cmu + 0x800, BIT(0) | BIT(1), BIT(0) | BIT(1));
++	d->ready = true;
++	if (s6_rate(hw, 24000000) != G3D_RATE) {
++		d->ready = false;
++		ret = -EIO;
++		goto out;
++	}
++	dev_dbg(d->dev,
++		"real PLL/gate readback 266MHz, supply693750uV; Panfrost may probe\n");
++out:
++	d->last_error = ret;
++	mutex_unlock(&d->lock);
++	return ret;
++}
++
++static void s6_unprepare(struct clk_hw *hw)
++{
++	/* Hold the verified domain/rails on for this pilot. No untested power-off. */
++}
++
++static const struct clk_ops s6_clock_ops = { .prepare = s6_prepare,
++					     .unprepare = s6_unprepare,
++					     .recalc_rate = s6_rate,
++					     .determine_rate = s6_determine,
++					     .set_rate = s6_set_rate };
++static int s6_supply_voltage(struct regulator_dev *rdev)
++{
++	return s6_voltage(rdev_get_drvdata(rdev));
++}
++
++static const struct regulator_ops s6_supply_ops = {
++	.list_voltage = regulator_list_voltage_linear,
++	.get_voltage = s6_supply_voltage,
++};
++
++static ssize_t state_show(struct device *dev, struct device_attribute *attr,
++			  char *buf)
++{
++	struct s6_g3d *d = dev_get_drvdata(dev);
++	u32 pd = readl(d->pmu + 0x4104);
++
++	if ((pd & 0xf) != 0xf)
++		return sysfs_emit(
++			buf,
++			"ready=%u error=%d pd=%08x voltage=%d domain_off_no_cmu_access\n",
++			d->ready, d->last_error, pd, s6_voltage(d));
++	return sysfs_emit(
++		buf,
++		"ready=%u error=%d pd=%08x voltage=%d pll=%08x con1=%08x con2=%08x mux=%08x stat=%08x gate=%08x rate=%lu\n",
++		d->ready, d->last_error, pd, s6_voltage(d),
++		readl(d->cmu + 0x100), readl(d->cmu + 0x104),
++		readl(d->cmu + 0x108), readl(d->cmu + 0x200),
++		readl(d->cmu + 0x400), readl(d->cmu + 0x800),
++		s6_rate(&d->hw, 24000000));
++}
++
++static DEVICE_ATTR_RO(state);
++static void s6_put_client(void *client)
++{
++	put_device(&((struct i2c_client *)client)->dev);
++}
++
++static int s6_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct s6_g3d *d;
++	struct device_node *np;
++	struct i2c_client *client;
++	struct sec_pmic_dev *pmic;
++	struct regulator_config cfg = {};
++	struct regulator_dev *rdev;
++	struct clk *ref;
++	unsigned int ctrl, sync, ldo;
++	int ret;
++	const struct clk_parent_data parent = { .fw_name = "ref" };
++	struct clk_init_data init = { .name = "s6_g3dclk",
++				      .ops = &s6_clock_ops,
++				      .flags = CLK_GET_RATE_NOCACHE |
++					       CLK_IGNORE_UNUSED,
++				      .parent_data = &parent,
++				      .num_parents = 1 };
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		return -ENODEV;
++	d = devm_kzalloc(dev, sizeof(*d), GFP_KERNEL);
++	if (!d)
++		return -ENOMEM;
++	d->dev = dev;
++	mutex_init(&d->lock);
++	ref = devm_clk_get(dev, "ref");
++	if (IS_ERR(ref))
++		return dev_err_probe(dev, PTR_ERR(ref), "reference clock\n");
++	if (clk_get_rate(ref) != 24000000)
++		return dev_err_probe(dev, -EINVAL,
++				     "24MHz reference required\n");
++	np = of_parse_phandle(dev->of_node, "samsung,pmic", 0);
++	if (!np)
++		return -EINVAL;
++	client = of_find_i2c_device_by_node(np);
++	of_node_put(np);
++	if (!client)
++		return -EPROBE_DEFER;
++	ret = devm_add_action_or_reset(dev, s6_put_client, client);
++	if (ret)
++		return ret;
++	pmic = i2c_get_clientdata(client);
++	if (!pmic || !pmic->regmap_pmic)
++		return -EPROBE_DEFER;
++	d->pmic = pmic->regmap_pmic;
++	/*
++	 * OEM OCP calibration metadata is outside the generic regmap (max0x52).
++	 * Read this single non-interrupt byte through the existing kernel I2C client;
++	 * never force a userspace claim or change the OTP/calibration configuration.
++	 */
++	ret = i2c_smbus_read_byte_data(client, 0x59);
++	if (ret < 0)
++		return ret;
++	d->ocp_steps = (ret & 0x20) ? 0 : 5;
++	dev_dbg(dev, "PMIC calibration59=%02x OCP correction=%d DAC steps\n",
++		ret, d->ocp_steps);
++	/*
++	 * No PMIC writes. Only these non-interrupt registers are read.
++	 * LDO10=0x54 and sync=0x4f were verified through the PMIC regmap.
++	 */
++	ret = regmap_read(d->pmic, S2MPS15_REG_B6CTRL1, &ctrl);
++	if (ret)
++		return ret;
++	ret = regmap_read(d->pmic, G3D_SYNC_REG, &sync);
++	if (ret)
++		return ret;
++	ret = regmap_read(d->pmic, S2MPS15_REG_L10CTRL, &ldo);
++	if (ret)
++		return ret;
++	if ((ctrl & 0xc0) || !(sync & 0x40) || ldo != 0x54 ||
++	    s6_voltage(d) != G3D_UV)
++		return dev_err_probe(
++			dev, -EINVAL,
++			"unexpected BUCK6/LDO10 mode or ASV voltage: ctrl=%02x sync=%02x ldo=%02x uV=%d\n",
++			ctrl, sync, ldo, s6_voltage(d));
++	d->cmu = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(d->cmu))
++		return PTR_ERR(d->cmu);
++	d->pmu = devm_ioremap(dev, 0x105c0000, 0x6200);
++	d->topc = devm_ioremap(dev, 0x10570000, 0x1000);
++	d->ccore = devm_ioremap(dev, 0x105b0000, 0x1000);
++	if (!d->pmu || !d->topc || !d->ccore)
++		return -ENOMEM;
++	ctrl = readl(d->pmu + 0x4104) & 0xf;
++	if (ctrl != 0 && ctrl != 0xf)
++		return dev_err_probe(
++			dev, -EBUSY,
++			"partial inherited G3D domain state; no GPIO changes\n");
++	dev_dbg(dev, "initial PD_G3D=%x; verified GPIO high handoff\n", ctrl);
++	/*
++	 * Samsung requests DVS OFF before runtime domain resume. The DVS
++	 * status must acknowledge normal voltage before any CMU/GPU access.
++	 */
++	if (readl(d->pmu + 0x6100) & BIT(0)) {
++		u32 status;
++
++		s6_update(d->pmu + 0x6100, BIT(1), 0);
++		ret = readl_poll_timeout(d->pmu + 0x6104, status,
++					 status & BIT(0), 100, 10000);
++		if (ret)
++			return dev_err_probe(
++				dev, ret,
++				"DVS OFF not acknowledged; no GPIO or GPU access\n");
++	}
++	/*
++	 * Samsung direction_output preloads DAT before changing CON to output.
++	 * OUT_HIGH preserves an already-enabled rail; never pulse it low.
++	 */
++	d->enable = gpiod_get(dev, "enable", GPIOD_OUT_HIGH);
++	if (IS_ERR(d->enable))
++		return dev_err_probe(dev, PTR_ERR(d->enable),
++				     "BUCK6/LDO10 enable GPIO\n");
++	d->supply_desc = (struct regulator_desc){ .name = "s6-g3d-buck6",
++						  .owner = THIS_MODULE,
++						  .type = REGULATOR_VOLTAGE,
++						  .ops = &s6_supply_ops,
++						  .n_voltages = 1,
++						  .min_uV = G3D_UV,
++						  .enable_time = 1000 };
++	cfg.dev = dev;
++	cfg.of_node = dev->of_node;
++	cfg.driver_data = d;
++	cfg.regmap = d->pmic;
++	cfg.ena_gpiod = d->enable;
++	cfg.init_data =
++		of_get_regulator_init_data(dev, dev->of_node, &d->supply_desc);
++	rdev = devm_regulator_register(dev, &d->supply_desc, &cfg);
++	if (IS_ERR(rdev))
++		return dev_err_probe(dev, PTR_ERR(rdev),
++				     "physical G3D supply\n");
++	d->hw.init = &init;
++	ret = devm_clk_hw_register(dev, &d->hw);
++	if (ret)
++		return ret;
++	ret = devm_of_clk_add_hw_provider(dev, of_clk_hw_simple_get, &d->hw);
++	if (ret)
++		return ret;
++	platform_set_drvdata(pdev, d);
++	ret = device_create_file(dev, &dev_attr_state);
++	if (ret)
++		return ret;
++	dev_dbg(dev,
++		"verified external BUCK6/LDO10 at693750uV; clock provider ready; inherited power preserved\n");
++	return 0;
++}
++
++static const struct of_device_id s6_matches[] = {
++	{ .compatible = "samsung,zerolte-g3d-pilot" },
++	{}
++};
++
++MODULE_DEVICE_TABLE(of, s6_matches);
++static struct platform_driver s6_driver = {
++	.probe = s6_probe,
++	.driver = { .name = "s6-g3d-pilot", .of_match_table = s6_matches }
++};
++
++module_platform_driver(s6_driver);
++MODULE_LICENSE("GPL");
+diff --git a/drivers/hwmon/Kconfig b/drivers/hwmon/Kconfig
+index 2bfbcc033d599ce2eacd57c8ca64746f87519353..df9e175e7c303f81ebbfad953689c50b43af5581 100644
+--- a/drivers/hwmon/Kconfig
++++ b/drivers/hwmon/Kconfig
+@@ -2800,3 +2800,12 @@ config SENSORS_HP_WMI
+ endif # ACPI
+ 
+ endif # HWMON
++
++config S6_TMU_OBSERVE
++	bool "Zerolte TMU monitoring and CPU thermal protection"
++	depends on OF && ARCH_EXYNOS && HWMON
++	help
++	  Monitor firmware-initialized temperature sensors on the Galaxy S6 Edge
++	  without changing the TMU calibration or control registers.
++	  Limit CPU frequency and park secondary CPUs above the passive trip.
++	  Invalid samples fail closed; the critical trip requests recovery.
+diff --git a/drivers/hwmon/Makefile b/drivers/hwmon/Makefile
+index 63effc0ab8d113fd82a8c5cafa0ee0e3e144217f..1f29c8fba5f59708388bcf68b1ad4640ae9169df 100644
+--- a/drivers/hwmon/Makefile
++++ b/drivers/hwmon/Makefile
+@@ -256,3 +256,5 @@ obj-$(CONFIG_SENSORS_PECI)	+= peci/
+ obj-$(CONFIG_PMBUS)		+= pmbus/
+ 
+ ccflags-$(CONFIG_HWMON_DEBUG_CHIP) := -DDEBUG
++
++obj-$(CONFIG_S6_TMU_OBSERVE) += s6_tmu_observe.o
+diff --git a/drivers/hwmon/s6_tmu_observe.c b/drivers/hwmon/s6_tmu_observe.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..d14ee4e219678c87493957ca875f4c857ca72d63
+--- /dev/null
++++ b/drivers/hwmon/s6_tmu_observe.c
+@@ -0,0 +1,576 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Zerolte TMU monitoring using Samsung cal_tmu7420 calibration, with no TMU writes.
++ * Requires firmware-initialized converters; invalid sensors fail closed.
++ * Applies CPU frequency limits and core parking at the passive thermal trip,
++ * and requests recovery at the critical trip.
++ */
++#include <linux/bits.h>
++#include <linux/mutex.h>
++#include <linux/slab.h>
++#include <linux/clk.h>
++#include <linux/cpu.h>
++#include <linux/cpufreq.h>
++#include <linux/of_address.h>
++#include <linux/cpuhplock.h>
++#include <linux/delay.h>
++#include <linux/kmod.h>
++#include <linux/ktime.h>
++#include <linux/reboot.h>
++#include <linux/sched/clock.h>
++#include <linux/smp.h>
++#include <linux/thermal.h>
++#include <linux/workqueue.h>
++#include <clocksource/arm_arch_timer.h>
++#include <asm/sysreg.h>
++#include <linux/hwmon.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++
++struct s6_tmu {
++	void __iomem *base[4];
++	u32 calibration[4];
++	struct mutex lock, cooling_lock;
++	struct device *dev;
++	void __iomem *apollo;
++	struct cpufreq_policy *policy[2];
++	struct freq_qos_request maxfreq[2];
++	struct thermal_zone_device *zone;
++	struct thermal_cooling_device *cooling;
++	struct delayed_work guard;
++	struct work_struct park_work;
++	bool cooling_latched, stopping, sensor_fault;
++	atomic_t recovery_requested;
++};
++
++static const char *const s6_labels[] = { "TMU_10060000", "TMU_10064000",
++					 "TMU_10068000", "TMU_1006c000" };
++static int s6_tmu_read(struct device *dev, enum hwmon_sensor_types type,
++		       u32 attr, int channel, long *value)
++{
++	struct s6_tmu *d = dev_get_drvdata(dev);
++	void __iomem *p = d->base[channel];
++	u32 status, trim, code, first, second, after;
++	int ret, temp;
++
++	if (type != hwmon_temp || attr != hwmon_temp_input)
++		return -EOPNOTSUPP;
++	mutex_lock(&d->lock);
++	if (!(readl(p + 0x20) & 1)) {
++		ret = -ENODATA;
++		goto out;
++	}
++	/*
++	 * TEMP0/VALID_P0 belong to P0 even while another probe is selected.
++	 * Only TRIMINFO is multiplexed; its immutable P0 value was captured at probe.
++	 */
++	ret = readl_poll_timeout(p + 0x28, status, status & BIT(12), 10, 20000);
++	if (ret)
++		goto out;
++	trim = d->calibration[channel];
++	code = readl(p + 0x40) & 0x1ff;
++	after = readl(p + 0x28);
++	if (!(after & BIT(12))) {
++		ret = -EAGAIN;
++		goto out;
++	}
++	first = trim & 0x1ff;
++	second = (trim >> 9) & 0x1ff;
++	if (!first || !code || first == 0x1ff || code == 0x1ff) {
++		ret = -ENODATA;
++		goto out;
++	}
++	if (trim & BIT(23)) {
++		if (second <= first || second == 0x1ff) {
++			ret = -ENODATA;
++			goto out;
++		}
++		temp = ((int)code - (int)first) * 60000 /
++			       (int)(second - first) +
++		       25000;
++	} else
++		temp = ((int)code - (int)first) * 1000 + 25000;
++	/* No clamping: impossible samples must not masquerade as safe temperatures. */
++	if (temp < -40000 || temp > 150000) {
++		ret = -ENODATA;
++		goto out;
++	}
++	*value = temp;
++	ret = 0;
++out:
++	mutex_unlock(&d->lock);
++	return ret;
++}
++
++static int s6_tmu_label(struct device *dev, enum hwmon_sensor_types type,
++			u32 attr, int channel, const char **str)
++{
++	if (type != hwmon_temp || attr != hwmon_temp_label)
++		return -EOPNOTSUPP;
++	*str = s6_labels[channel];
++	return 0;
++}
++
++static umode_t s6_tmu_visible(const void *d, enum hwmon_sensor_types type,
++			      u32 attr, int ch)
++{
++	return type == hwmon_temp && (attr == hwmon_temp_input ||
++				      attr == hwmon_temp_label) ?
++		       0444 :
++		       0;
++}
++
++static const struct hwmon_ops s6_tmu_ops = {
++	.is_visible = s6_tmu_visible,
++	.read = s6_tmu_read,
++	.read_string = s6_tmu_label,
++};
++
++static const struct hwmon_channel_info *const s6_tmu_channels[] = {
++	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL),
++	NULL
++};
++
++static const struct hwmon_chip_info s6_tmu_info = { .ops = &s6_tmu_ops,
++						    .info = s6_tmu_channels };
++
++static int s6_capture_calibration(struct s6_tmu *d, int channel)
++{
++	void __iomem *p = d->base[channel];
++	u32 status, trim, after, first, second;
++	int attempt, ret;
++
++	if (!(readl(p + 0x20) & 1))
++		return -ENODATA;
++	for (attempt = 0; attempt < 3; attempt++) {
++		ret = readl_poll_timeout(p + 0x28, status,
++					 !(status & GENMASK(10, 8)) &&
++						 (status & BIT(12)),
++					 10, 200000);
++		if (ret)
++			continue;
++		trim = readl(p);
++		after = readl(p + 0x28);
++		if ((after & GENMASK(10, 8)) || !(after & BIT(12)))
++			continue;
++		first = trim & 0x1ff;
++		second = (trim >> 9) & 0x1ff;
++		if (!first || first == 0x1ff ||
++		    ((trim & BIT(23)) && (second <= first || second == 0x1ff)))
++			return -ENODATA;
++		d->calibration[channel] = trim;
++		dev_dbg(d->dev, "TMU%d P0 calibration=%08x captured once\n",
++			channel, trim);
++		return 0;
++	}
++	return -ETIMEDOUT;
++}
++
++struct s6_counter_sample {
++	u64 mpidr, phys, virt, selected, sched, mono;
++	u32 frq;
++};
++
++static void s6_counter_read(void *arg)
++{
++	struct s6_counter_sample *s = arg;
++
++	isb();
++	s->mpidr = read_sysreg(mpidr_el1);
++	s->frq = read_sysreg(cntfrq_el0);
++	s->phys = read_sysreg(cntpct_el0);
++	s->virt = read_sysreg(cntvct_el0);
++	s->selected = arch_timer_read_counter();
++	s->sched = sched_clock();
++	s->mono = ktime_get_ns();
++}
++
++static ssize_t counters_show(struct device *dev, struct device_attribute *attr,
++			     char *buf)
++{
++	struct s6_counter_sample *s;
++	int cpu, n = 0, ret;
++
++	s = kcalloc(nr_cpu_ids, sizeof(*s), GFP_KERNEL);
++	if (!s)
++		return -ENOMEM;
++	cpus_read_lock();
++	for_each_online_cpu(cpu) {
++		ret = smp_call_function_single(cpu, s6_counter_read, &s[cpu],
++					       1);
++		if (ret) {
++			n = ret;
++			break;
++		}
++		n += sysfs_emit_at(
++			buf, n,
++			"cpu=%d mpidr=%llx frq=%u phys=%llu virt=%llu selected=%llu sched_ns=%llu mono_ns=%llu\n",
++			cpu, s[cpu].mpidr, s[cpu].frq, s[cpu].phys, s[cpu].virt,
++			s[cpu].selected, s[cpu].sched, s[cpu].mono);
++	}
++	cpus_read_unlock();
++	kfree(s);
++	return n;
++}
++
++static DEVICE_ATTR_RO(counters);
++static ssize_t dvfs_registers_show(struct device *dev,
++				   struct device_attribute *a, char *buf)
++{
++	struct s6_tmu *d = dev_get_drvdata(dev);
++	u32 offsets[] = { 0x100, 0x200, 0x204, 0x208, 0x400, 0x404,
++			  0x408, 0x600, 0x604, 0x700, 0x704 };
++	int i, n = 0;
++
++	if (!d->apollo)
++		return -ENODEV;
++	for (i = 0; i < ARRAY_SIZE(offsets); i++)
++		n += sysfs_emit_at(buf, n, "%03x %08x\n", offsets[i],
++				   readl(d->apollo + offsets[i]));
++	return n;
++}
++
++static DEVICE_ATTR_RO(dvfs_registers);
++static struct attribute *s6_attrs[] = { &dev_attr_counters.attr,
++					&dev_attr_dvfs_registers.attr, NULL };
++static const struct attribute_group s6_group = { .attrs = s6_attrs };
++static int s6_soc_temp(struct thermal_zone_device *zone, int *temp)
++{
++	struct s6_tmu *d = thermal_zone_device_priv(zone);
++	long t;
++	int n, ret, max = -40000;
++
++	for (n = 0; n < 4; n++) {
++		ret = s6_tmu_read(d->dev, hwmon_temp, hwmon_temp_input, n, &t);
++		if (ret)
++			return ret;
++		max = max_t(int, max, t);
++	}
++	*temp = max;
++	return 0;
++}
++
++static int s6_cooling_max(struct thermal_cooling_device *c,
++			  unsigned long *state)
++{
++	*state = 1;
++	return 0;
++}
++
++static int s6_cooling_get(struct thermal_cooling_device *c,
++			  unsigned long *state)
++{
++	struct s6_tmu *d = c->devdata;
++	*state = READ_ONCE(d->cooling_latched);
++	return 0;
++}
++
++static void s6_park_work(struct work_struct *work)
++{
++	struct s6_tmu *d = container_of(work, struct s6_tmu, park_work);
++	int cpu, r;
++
++	mutex_lock(&d->cooling_lock);
++	if (d->cooling_latched)
++		for_each_possible_cpu(cpu) {
++			if (!cpu || !cpu_online(cpu))
++				continue;
++			if (cpu == 1 && !READ_ONCE(d->sensor_fault))
++				continue;
++			r = remove_cpu(cpu);
++			dev_warn(d->dev, "thermal park CPU%d rc=%d\n", cpu, r);
++		}
++	mutex_unlock(&d->cooling_lock);
++}
++
++static int s6_cooling_set(struct thermal_cooling_device *c, unsigned long state)
++{
++	struct s6_tmu *d = c->devdata;
++
++	if (state > 1 || READ_ONCE(d->stopping))
++		return -EINVAL;
++	mutex_lock(&d->cooling_lock);
++	d->cooling_latched = state;
++	mutex_unlock(&d->cooling_lock);
++	/* The actuator runs on CPU0 so it can never offline its own worker. */
++	if (state)
++		queue_work_on(0, system_percpu_wq, &d->park_work);
++	/* Relaxing cooling never automatically onlines an unvalidated core. */
++	return 0;
++}
++
++static const struct thermal_cooling_device_ops s6_cooling_ops = {
++	.get_max_state = s6_cooling_max,
++	.get_cur_state = s6_cooling_get,
++	.set_cur_state = s6_cooling_set
++};
++
++static bool s6_should_bind(struct thermal_zone_device *zone,
++			   const struct thermal_trip *trip,
++			   struct thermal_cooling_device *cooling,
++			   struct cooling_spec *spec)
++{
++	struct s6_tmu *d = thermal_zone_device_priv(zone);
++
++	if (trip->type != THERMAL_TRIP_PASSIVE)
++		return false;
++	if (cooling != d->cooling) {
++		unsigned long max;
++
++		if (strncmp(cooling->type, "thermal-cpufreq-", 16))
++			return false;
++		if (cooling->ops->get_max_state(cooling, &max))
++			return false;
++		spec->lower = max;
++		spec->upper = max;
++		spec->weight = THERMAL_WEIGHT_DEFAULT;
++		return true;
++	}
++	spec->lower = 1;
++	spec->upper = 1;
++	spec->weight = THERMAL_WEIGHT_DEFAULT;
++	return true;
++}
++
++/* Free the private argument vectors after the asynchronous helper exits. */
++static void s6_recovery_cleanup(struct subprocess_info *info)
++{
++	kfree(info->argv);
++	kfree(info->envp);
++}
++
++static void s6_critical(struct thermal_zone_device *zone)
++{
++	struct s6_tmu *d = thermal_zone_device_priv(zone);
++	static char *const recovery_argv[] = {
++		"/rescue/bin/busybox", "sh", "-c",
++		"sync; /rescue/bin/busybox mount -o remount,ro /; /sbin/reboot-recovery",
++		NULL
++	};
++	static char *const recovery_env[] = {
++		"HOME=/", "PATH=/sbin:/bin:/usr/sbin:/usr/bin", NULL
++	};
++	struct subprocess_info *info;
++	char **argv, **env;
++	int ret;
++
++	if (atomic_cmpxchg(&d->recovery_requested, 0, 1))
++		return;
++	dev_emerg(d->dev,
++		  "critical thermal limit; requesting clean TWRP recovery\n");
++
++	/* The helper owns mutable copies while the templates remain constant. */
++	argv = kmemdup(recovery_argv, sizeof(recovery_argv), GFP_KERNEL);
++	env = kmemdup(recovery_env, sizeof(recovery_env), GFP_KERNEL);
++	if (!argv || !env)
++		goto free_vectors;
++
++	info = call_usermodehelper_setup(argv[0], argv, env, GFP_KERNEL, NULL,
++					 s6_recovery_cleanup, NULL);
++	if (!info)
++		goto free_vectors;
++
++	ret = call_usermodehelper_exec(info, UMH_NO_WAIT);
++	if (ret)
++		dev_err(d->dev, "failed to queue thermal recovery: %d\n", ret);
++	return;
++
++free_vectors:
++	kfree(argv);
++	kfree(env);
++	dev_err(d->dev, "cannot allocate thermal recovery arguments\n");
++}
++
++static const struct thermal_zone_device_ops s6_zone_ops = {
++	.get_temp = s6_soc_temp,
++	.should_bind = s6_should_bind,
++	.critical = s6_critical
++};
++
++static const struct thermal_trip s6_trips[] = {
++	{ .temperature = 55000,
++	  .hysteresis = 5000,
++	  .type = THERMAL_TRIP_PASSIVE },
++	{ .temperature = 85000,
++	  .hysteresis = 5000,
++	  .type = THERMAL_TRIP_CRITICAL }
++};
++
++static const struct thermal_zone_params s6_zone_params = { .governor_name =
++								   "step_wise",
++							   .no_hwmon = true };
++static void s6_zone_unregister(void *arg)
++{
++	thermal_zone_device_unregister(arg);
++}
++
++static void s6_guard_work(struct work_struct *work)
++{
++	struct s6_tmu *d =
++		container_of(to_delayed_work(work), struct s6_tmu, guard);
++	int ret, temp;
++
++	if (system_state == SYSTEM_RUNNING) {
++		ret = thermal_zone_get_temp(d->zone, &temp);
++		WRITE_ONCE(d->sensor_fault, ret != 0);
++		{
++			int i;
++
++			for (i = 0; i < 2; i++) {
++				if (!d->policy[i]) {
++					d->policy[i] = cpufreq_cpu_get(i);
++					if (d->policy[i] &&
++					    freq_qos_add_request(
++						    &d->policy[i]->constraints,
++						    &d->maxfreq[i],
++						    FREQ_QOS_MAX,
++						    FREQ_QOS_MAX_DEFAULT_VALUE) <
++						    0) {
++						cpufreq_cpu_put(d->policy[i]);
++						d->policy[i] = NULL;
++					}
++				}
++				if (d->policy[i] && (ret || temp >= 55000))
++					freq_qos_update_request(&d->maxfreq[i],
++								500000);
++				else if (d->policy[i] && temp <= 50000)
++					freq_qos_update_request(
++						&d->maxfreq[i],
++						FREQ_QOS_MAX_DEFAULT_VALUE);
++			}
++		}
++		if (ret || temp >= 55000) {
++			s6_cooling_set(d->cooling, 1);
++			if (ret)
++				dev_warn_ratelimited(
++					d->dev,
++					"invalid TMU; secondary CPUs parked\n");
++		} else if (temp <= 50000)
++			s6_cooling_set(d->cooling, 0);
++		if (!ret && temp >= 85000)
++			s6_critical(d->zone);
++	}
++	if (!READ_ONCE(d->stopping))
++		schedule_delayed_work_on(0, &d->guard, HZ);
++}
++
++static void s6_guard_stop(void *arg)
++{
++	struct s6_tmu *d = arg;
++
++	WRITE_ONCE(d->stopping, true);
++	cancel_delayed_work_sync(&d->guard);
++	cancel_work_sync(&d->park_work);
++	{
++		int i;
++
++		for (i = 0; i < 2; i++)
++			if (d->policy[i]) {
++				freq_qos_remove_request(&d->maxfreq[i]);
++				cpufreq_cpu_put(d->policy[i]);
++			}
++	}
++}
++
++static int s6_tmu_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev, *hw;
++	struct s6_tmu *d;
++	struct clk *apb, *sclk;
++	int i, ret;
++
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		return -ENODEV;
++	d = devm_kzalloc(dev, sizeof(*d), GFP_KERNEL);
++	if (!d)
++		return -ENOMEM;
++	{
++		struct device_node *cmu =
++			of_parse_phandle(dev->of_node, "samsung,apollo-cmu", 0);
++		struct resource r;
++
++		if (!cmu)
++			return -EINVAL;
++		ret = of_address_to_resource(cmu, 0, &r);
++		of_node_put(cmu);
++		if (ret)
++			return ret;
++		d->apollo = devm_ioremap(dev, r.start, resource_size(&r));
++		if (!d->apollo)
++			return -ENOMEM;
++	}
++	mutex_init(&d->lock);
++	mutex_init(&d->cooling_lock);
++	d->dev = dev;
++	platform_set_drvdata(pdev, d);
++	atomic_set(&d->recovery_requested, 0);
++	apb = devm_clk_get_enabled(dev, "tmu_apbif");
++	if (IS_ERR(apb))
++		return dev_err_probe(dev, PTR_ERR(apb), "TMU APB clock\n");
++	sclk = devm_clk_get_enabled(dev, "tmu_sclk");
++	if (IS_ERR(sclk))
++		return dev_err_probe(dev, PTR_ERR(sclk), "TMU sample clock\n");
++	for (i = 0; i < 4; i++) {
++		d->base[i] = devm_platform_ioremap_resource(pdev, i);
++		if (IS_ERR(d->base[i]))
++			return PTR_ERR(d->base[i]);
++		ret = s6_capture_calibration(d, i);
++		if (ret)
++			return dev_err_probe(dev, ret, "TMU%d P0 calibration\n",
++					     i);
++		dev_dbg(dev, "%s control=%08x status=%08x; observation only\n",
++			s6_labels[i], readl(d->base[i] + 0x20),
++			readl(d->base[i] + 0x28));
++	}
++	hw = devm_hwmon_device_register_with_info(dev, "s6_tmu", d,
++						  &s6_tmu_info, NULL);
++	if (IS_ERR(hw))
++		return PTR_ERR(hw);
++	INIT_WORK(&d->park_work, s6_park_work);
++	d->cooling = devm_thermal_cooling_device_register(
++		dev, "s6-secondary-park", d, &s6_cooling_ops);
++	if (IS_ERR(d->cooling))
++		return PTR_ERR(d->cooling);
++	d->zone = thermal_zone_device_register_with_trips(
++		"s6-soc", s6_trips, ARRAY_SIZE(s6_trips), d, &s6_zone_ops,
++		&s6_zone_params, 1000, 1000);
++	if (IS_ERR(d->zone))
++		return PTR_ERR(d->zone);
++	ret = devm_add_action_or_reset(dev, s6_zone_unregister, d->zone);
++	if (ret)
++		return ret;
++	ret = thermal_zone_device_enable(d->zone);
++	if (ret)
++		return ret;
++	ret = devm_device_add_group(dev, &s6_group);
++	if (ret)
++		return ret;
++	INIT_DELAYED_WORK(&d->guard, s6_guard_work);
++	ret = devm_add_action_or_reset(dev, s6_guard_stop, d);
++	if (ret)
++		return ret;
++	schedule_delayed_work_on(0, &d->guard, 15 * HZ);
++	return 0;
++}
++
++static const struct of_device_id s6_tmu_match[] = {
++	{ .compatible = "samsung,zerolte-tmu-observe" },
++	{}
++};
++
++MODULE_DEVICE_TABLE(of, s6_tmu_match);
++static struct platform_driver s6_tmu_driver = {
++	.probe = s6_tmu_probe,
++	.driver = { .name = "s6-tmu-observe", .of_match_table = s6_tmu_match }
++};
++
++module_platform_driver(s6_tmu_driver);
++MODULE_LICENSE("GPL");
++MODULE_DESCRIPTION(
++	"Zerolte firmware-initialized TMU observation, no control writes");
+diff --git a/drivers/iio/adc/exynos_adc.c b/drivers/iio/adc/exynos_adc.c
+index c1a0061b16ca29e415778fee0f2e0eeb0ba4ad83..169f9bb565d99712e1073a9ae4b17fcbbd8c0b2c 100644
+--- a/drivers/iio/adc/exynos_adc.c
++++ b/drivers/iio/adc/exynos_adc.c
+@@ -125,6 +125,7 @@ struct exynos_adc {
+ struct exynos_adc_data {
+ 	int num_channels;
+ 	bool needs_sclk;
++	bool no_vdd; /* Exynos7420 OEM DT has no controllable ADC supply. */
+ 	bool needs_adc_phy;
+ 	int phy_offset;
+ 	u32 mask;
+@@ -387,6 +388,25 @@ static void exynos_adc_exynos7_init_hw(struct exynos_adc *info)
+ 	writel(1, ADC_V2_INT_EN(info->regs));
+ }
+ 
++/* Exynos7420 Samsung driver: no ADC PHY control and no vdd consumer. */
++static void exynos_adc_exynos7420_init_hw(struct exynos_adc *info)
++{
++	writel(ADC_V2_CON1_SOFT_RESET, ADC_V2_CON1(info->regs));
++	writel(ADC_V2_CON2_OSEL | ADC_V2_CON2_ESEL | ADC_V2_CON2_HIGHF |
++		       ADC_V2_CON2_C_TIME(6),
++	       ADC_V2_CON2(info->regs));
++	writel(1, ADC_V2_INT_EN(info->regs));
++}
++static const struct exynos_adc_data exynos7420_adc_data = {
++	.num_channels = MAX_ADC_V2_CHANNELS,
++	.no_vdd = true,
++	.mask = ADC_DATX_MASK,
++	.init_hw = exynos_adc_exynos7420_init_hw,
++	.exit_hw = exynos_adc_v2_exit_hw,
++	.clear_irq = exynos_adc_v2_clear_irq,
++	.start_conv = exynos_adc_v2_start_conv,
++};
++
+ static const struct exynos_adc_data exynos7_adc_data = {
+ 	.num_channels	= MAX_ADC_V1_CHANNELS,
+ 	.mask		= ADC_DATX_MASK, /* 12 bit ADC resolution */
+@@ -416,7 +436,12 @@ static const struct of_device_id exynos_adc_match[] = {
+ 	}, {
+ 		.compatible = "samsung,exynos3250-adc",
+ 		.data = &exynos3250_adc_data,
+-	}, {
++	},
++	{
++		.compatible = "samsung,exynos7420-adc",
++		.data = &exynos7420_adc_data,
++	},
++	{
+ 		.compatible = "samsung,exynos7-adc",
+ 		.data = &exynos7_adc_data,
+ 	},
+@@ -443,6 +468,8 @@ static int exynos_read_raw(struct iio_dev *indio_dev,
+ 	int ret;
+ 
+ 	if (mask == IIO_CHAN_INFO_SCALE) {
++		if (!info->vdd)
++			return -EOPNOTSUPP;
+ 		ret = regulator_get_voltage(info->vdd);
+ 		if (ret < 0)
+ 			return ret;
+@@ -590,13 +617,16 @@ static int exynos_adc_probe(struct platform_device *pdev)
+ 					     "failed getting sclk clock\n");
+ 	}
+ 
+-	info->vdd = devm_regulator_get(dev, "vdd");
+-	if (IS_ERR(info->vdd))
+-		return dev_err_probe(dev, PTR_ERR(info->vdd), "failed getting regulator");
++	if (!info->data->no_vdd) {
++		info->vdd = devm_regulator_get(dev, "vdd");
++		if (IS_ERR(info->vdd))
++			return dev_err_probe(dev, PTR_ERR(info->vdd),
++					     "failed getting regulator");
+ 
+-	ret = regulator_enable(info->vdd);
+-	if (ret)
+-		return ret;
++		ret = info->vdd ? regulator_enable(info->vdd) : 0;
++		if (ret)
++			return ret;
++	}
+ 
+ 	ret = exynos_adc_prepare_clk(info);
+ 	if (ret)
+@@ -649,7 +679,8 @@ static int exynos_adc_probe(struct platform_device *pdev)
+ err_unprepare_clk:
+ 	exynos_adc_unprepare_clk(info);
+ err_disable_reg:
+-	regulator_disable(info->vdd);
++	if (info->vdd)
++		regulator_disable(info->vdd);
+ 	return ret;
+ }
+ 
+@@ -665,7 +696,8 @@ static void exynos_adc_remove(struct platform_device *pdev)
+ 		info->data->exit_hw(info);
+ 	exynos_adc_disable_clk(info);
+ 	exynos_adc_unprepare_clk(info);
+-	regulator_disable(info->vdd);
++	if (info->vdd)
++		regulator_disable(info->vdd);
+ }
+ 
+ static int exynos_adc_suspend(struct device *dev)
+@@ -676,7 +708,8 @@ static int exynos_adc_suspend(struct device *dev)
+ 	if (info->data->exit_hw)
+ 		info->data->exit_hw(info);
+ 	exynos_adc_disable_clk(info);
+-	regulator_disable(info->vdd);
++	if (info->vdd)
++		regulator_disable(info->vdd);
+ 
+ 	return 0;
+ }
+@@ -687,7 +720,7 @@ static int exynos_adc_resume(struct device *dev)
+ 	struct exynos_adc *info = iio_priv(indio_dev);
+ 	int ret;
+ 
+-	ret = regulator_enable(info->vdd);
++	ret = info->vdd ? regulator_enable(info->vdd) : 0;
+ 	if (ret)
+ 		return ret;
+ 
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index 9b9ae8ac3f7fd3b9e948083fcd05afabdcd69bca..09a5ea45942807b0c74eddab54af4beaef87ea4d 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -12,6 +12,15 @@ menuconfig INPUT_TOUCHSCREEN
+ 
+ if INPUT_TOUCHSCREEN
+ 
++config TOUCHSCREEN_S6_FTS_PILOT
++	bool "Zerolte STM FTS pilot"
++	depends on I2C && LEDS_CLASS && OF && REGULATOR
++	help
++	  Enable the STM FTS touchscreen and capacitive keys on the Galaxy
++	  S6 Edge, including its optional key backlight supply. The driver
++	  uses the firmware event protocol and verified board supply voltages.
++	  Firmware upgrades, NVM repair and suspend are not supported.
++
+ config TOUCHSCREEN_88PM860X
+ 	tristate "Marvell 88PM860x touchscreen"
+ 	depends on MFD_88PM860X
+diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
+index bfd9de83389d8833dbe7cc2641cb24493cdf3807..5324f0f9c85fbabdaa1648030ba6f9f4888b362e 100644
+--- a/drivers/input/touchscreen/Makefile
++++ b/drivers/input/touchscreen/Makefile
+@@ -119,3 +119,5 @@ obj-$(CONFIG_TOUCHSCREEN_IQS5XX)	+= iqs5xx.o
+ obj-$(CONFIG_TOUCHSCREEN_IQS7211)	+= iqs7211.o
+ obj-$(CONFIG_TOUCHSCREEN_ZINITIX)	+= zinitix.o
+ obj-$(CONFIG_TOUCHSCREEN_HIMAX_HX83112B)	+= himax_hx83112b.o
++
++obj-$(CONFIG_TOUCHSCREEN_S6_FTS_PILOT) += s6-fts-pilot.o
+diff --git a/drivers/input/touchscreen/s6-fts-pilot.c b/drivers/input/touchscreen/s6-fts-pilot.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..680d7e310784690bbd8a9c368c166d8e95b1419d
+--- /dev/null
++++ b/drivers/input/touchscreen/s6-fts-pilot.c
+@@ -0,0 +1,315 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Zerolte STM FTS pilot, based on Samsung2014-2015 fts_ts.c protocol and
++ * Linux stmfts.c event layout. No firmware upgrade or NVM writes.
++ * Supplies use the verified Samsung3.3V/1.85V values; no suspend claim.
++ */
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/input.h>
++#include <linux/input/mt.h>
++#include <linux/interrupt.h>
++#include <linux/module.h>
++#include <linux/leds.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++struct s6_fts {
++	struct i2c_client *client;
++	struct input_dev *input, *keys;
++	struct regulator *avdd, *vdd, *keyled;
++	struct led_classdev keyled_class;
++	bool keyled_on;
++	u8 events[256], id[7];
++	unsigned long irqs, contacts, errors;
++	unsigned int consecutive_errors;
++	unsigned long key_events;
++};
++
++static int s6_fts_read(struct s6_fts *d, u8 *command, u16 len, void *data,
++		       u16 size)
++{
++	struct i2c_msg m[] = {
++		{ .addr = d->client->addr, .len = len, .buf = command },
++		{ .addr = d->client->addr,
++		  .flags = I2C_M_RD,
++		  .len = size,
++		  .buf = data }
++	};
++	int r;
++
++	r = i2c_transfer(d->client->adapter, m, 2);
++	return r == 2 ? 0 : (r < 0 ? r : -EIO);
++}
++
++static int s6_fts_write(struct s6_fts *d, const u8 *command, int size)
++{
++	int r = i2c_master_send(d->client, command, size);
++	return r == size ? 0 : (r < 0 ? r : -EIO);
++}
++
++static int s6_fts_cmd(struct s6_fts *d, u8 command)
++{
++	return s6_fts_write(d, &command, 1);
++}
++
++static irqreturn_t s6_fts_irq(int irq, void *arg)
++{
++	struct s6_fts *d = arg;
++	u8 command = 0x86;
++	int n, r;
++
++	d->irqs++;
++	r = s6_fts_read(d, &command, 1, d->events, sizeof(d->events));
++	if (r) {
++		d->errors++;
++		if (++d->consecutive_errors >= 3) {
++			disable_irq_nosync(irq);
++			dev_err(&d->client->dev,
++				"three I2C failures; touch IRQ disabled, USB/WLAN rescue retained\n");
++		}
++		return IRQ_HANDLED;
++	}
++	d->consecutive_errors = 0;
++	for (n = 0; n < 32; n++) {
++		u8 *e = d->events + n * 8;
++		unsigned int type = e[0] & 15, slot = e[0] >> 4;
++
++		if (!e[0])
++			break;
++		if (e[0] == 0x0e) {
++			input_report_key(d->keys, KEY_APPSELECT, !!(e[2] & 1));
++			input_report_key(d->keys, KEY_BACK, !!(e[2] & 2));
++			input_sync(d->keys);
++			d->key_events++;
++			continue;
++		}
++		if (slot >= 10 || (type != 3 && type != 4 && type != 5))
++			continue;
++		input_mt_slot(d->input, slot);
++		input_mt_report_slot_state(d->input, MT_TOOL_FINGER, type != 4);
++		if (type != 4) {
++			input_report_abs(d->input, ABS_MT_POSITION_X,
++					 e[1] | ((e[2] & 15) << 8));
++			input_report_abs(d->input, ABS_MT_POSITION_Y,
++					 (e[2] >> 4) | (e[3] << 4));
++			input_report_abs(d->input, ABS_MT_TOUCH_MAJOR, e[4]);
++			d->contacts++;
++		}
++	}
++	input_mt_sync_frame(d->input);
++	input_mt_report_pointer_emulation(d->input, false);
++	input_sync(d->input);
++	return IRQ_HANDLED;
++}
++
++static ssize_t diagnostics_show(struct device *dev,
++				struct device_attribute *attr, char *buf)
++{
++	struct s6_fts *d = dev_get_drvdata(dev);
++
++	return sysfs_emit(
++		buf,
++		"chip=%02x%02x irqs=%lu contact_events=%lu i2c_errors=%lu key_events=%lu supplies_uV=3300000,1850000\n",
++		d->id[1], d->id[2], READ_ONCE(d->irqs), READ_ONCE(d->contacts),
++		READ_ONCE(d->errors), READ_ONCE(d->key_events));
++}
++
++static DEVICE_ATTR_RO(diagnostics);
++static void s6_fts_disable(void *arg)
++{
++	struct s6_fts *d = arg;
++	const u8 cmd[] = { 0xb6, 0, 0x1c, 0 };
++
++	s6_fts_write(d, cmd, 4);
++}
++
++static int s6_keyled_set(struct led_classdev *led,
++			 enum led_brightness brightness)
++{
++	struct s6_fts *d = container_of(led, struct s6_fts, keyled_class);
++	int r;
++
++	if (!!brightness == d->keyled_on)
++		return 0;
++	r = brightness ? regulator_enable(d->keyled) :
++			 regulator_disable(d->keyled);
++	if (!r)
++		d->keyled_on = !!brightness;
++	return r;
++}
++
++static void s6_keyled_off(void *arg)
++{
++	struct s6_fts *d = arg;
++
++	if (d->keyled_on)
++		regulator_disable(d->keyled);
++}
++
++static int s6_fts_probe(struct i2c_client *client)
++{
++	struct s6_fts *d;
++	struct input_dev *input;
++	int r, n;
++	u8 cmd[] = { 0xb6, 0, 7 }, event[8];
++	const u8 interrupt_off[] = { 0xb6, 0, 0x1c, 0 },
++		 reset[] = { 0xb6, 0, 0x23, 1 },
++		 interrupt_on[] = { 0xb6, 0, 0x1c, 0x41 };
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte") ||
++	    client->addr != 0x49)
++		return -ENODEV;
++	if (client->irq <= 0)
++		return -EINVAL;
++	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
++		return -EOPNOTSUPP;
++	d = devm_kzalloc(&client->dev, sizeof(*d), GFP_KERNEL);
++	if (!d)
++		return -ENOMEM;
++	d->client = client;
++	i2c_set_clientdata(client, d);
++	d->avdd = devm_regulator_get(&client->dev, "avdd");
++	if (IS_ERR(d->avdd))
++		return dev_err_probe(&client->dev, PTR_ERR(d->avdd),
++				     "FTS AVDD\n");
++	d->vdd = devm_regulator_get(&client->dev, "vdd");
++	if (IS_ERR(d->vdd))
++		return dev_err_probe(&client->dev, PTR_ERR(d->vdd),
++				     "FTS IO supply\n");
++	if (regulator_get_voltage(d->avdd) != 3300000 ||
++	    regulator_get_voltage(d->vdd) != 1850000)
++		return -EINVAL;
++	/* Match Samsung: analog supply first, then I/O. Both stay always-on. */
++	r = regulator_enable(d->avdd);
++	if (r)
++		return r;
++	r = regulator_enable(d->vdd);
++	if (r)
++		return r;
++	msleep(20);
++	r = s6_fts_read(d, cmd, 3, d->id, 7);
++	if (r)
++		return dev_err_probe(&client->dev, r, "FTS chip-ID read\n");
++	dev_dbg(&client->dev,
++		"FTS ID %*ph; no firmware upgrade; verified3.3/1.85V supplies\n",
++		7, d->id);
++	if (d->id[1] != 0x39 || (d->id[2] != 0x80 && d->id[2] != 0x6c))
++		return -ENODEV;
++	if (d->id[2] == 0x6c && !d->id[4] && !d->id[5])
++		return dev_err_probe(
++			&client->dev, -ENODATA,
++			"FTS calibration invalid; refusing NVM repair\n");
++	r = s6_fts_write(d, interrupt_off, 4);
++	if (r)
++		return r;
++	r = s6_fts_write(d, reset, 4);
++	if (r)
++		return r;
++	msleep(20);
++	for (n = 0; n < 50; n++) {
++		u8 read_one = 0x85;
++
++		r = s6_fts_read(d, &read_one, 1, event, 8);
++		if (r)
++			return r;
++		if (event[0] == 0x10)
++			break;
++		if (event[0] == 0x0f)
++			return dev_err_probe(&client->dev, -EIO,
++					     "FTS reset error event\n");
++		usleep_range(10000, 12000);
++	}
++	if (n == 50)
++		return -ETIMEDOUT;
++	r = s6_fts_cmd(d, 0x91);
++	if (r)
++		return r;
++	msleep(20);
++	r = s6_fts_cmd(d, 0x93);
++	if (r)
++		return r;
++	r = s6_fts_cmd(d, 0x9b);
++	if (r)
++		return r;
++	r = s6_fts_cmd(d, 0xa1);
++	if (r)
++		return r;
++	input = devm_input_allocate_device(&client->dev);
++	if (!input)
++		return -ENOMEM;
++	d->input = input;
++	input->name = "Galaxy S6 Edge STM FTS";
++	input->id.bustype = BUS_I2C;
++	input_set_capability(input, EV_KEY, BTN_TOUCH);
++
++	input_set_abs_params(input, ABS_X, 0, 4095, 0, 0);
++	input_set_abs_params(input, ABS_Y, 0, 4095, 0, 0);
++	input_set_abs_params(input, ABS_MT_POSITION_X, 0, 4095, 0, 0);
++	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, 4095, 0, 0);
++	input_set_abs_params(input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
++	r = input_mt_init_slots(input, 10, INPUT_MT_DIRECT);
++	if (r)
++		return r;
++	r = devm_request_threaded_irq(&client->dev, client->irq, NULL,
++				      s6_fts_irq, IRQF_ONESHOT | IRQF_NO_AUTOEN,
++				      "s6-fts-touch", d);
++	if (r)
++		return r;
++	r = input_register_device(input);
++	if (r)
++		return r;
++	d->keys = devm_input_allocate_device(&client->dev);
++	if (!d->keys)
++		return -ENOMEM;
++	d->keys->name = "Galaxy S6 capacitive keys";
++	d->keys->id.bustype = BUS_I2C;
++	input_set_capability(d->keys, EV_KEY, KEY_APPSELECT);
++	input_set_capability(d->keys, EV_KEY, KEY_BACK);
++	r = input_register_device(d->keys);
++	if (r)
++		return r;
++
++	if (of_find_property(client->dev.of_node, "keyled-supply", NULL)) {
++		d->keyled = devm_regulator_get(&client->dev, "keyled");
++		if (IS_ERR(d->keyled))
++			return dev_err_probe(&client->dev, PTR_ERR(d->keyled),
++					     "key LED supply\n");
++		if (regulator_get_voltage(d->keyled) != 3300000)
++			return -EINVAL;
++		d->keyled_class.name = "s6::kbd_backlight";
++		d->keyled_class.max_brightness = 1;
++		d->keyled_class.brightness_set_blocking = s6_keyled_set;
++		r = devm_add_action_or_reset(&client->dev, s6_keyled_off, d);
++		if (r)
++			return r;
++		r = devm_led_classdev_register(&client->dev, &d->keyled_class);
++		if (r)
++			return r;
++	}
++
++	r = device_create_file(&client->dev, &dev_attr_diagnostics);
++	if (r)
++		return r;
++	r = s6_fts_write(d, interrupt_on, 4);
++	if (r)
++		return r;
++	r = devm_add_action_or_reset(&client->dev, s6_fts_disable, d);
++	if (r)
++		return r;
++	enable_irq(client->irq);
++	dev_dbg(&client->dev, "touch registered, ten slots4095x4095, IRQ%d\n",
++		client->irq);
++	return 0;
++}
++
++static const struct of_device_id s6_fts_match[] = {
++	{ .compatible = "samsung,zerolte-fts" },
++	{}
++};
++
++static struct i2c_driver s6_fts_driver = {
++	.driver = { .name = "s6-fts-touch", .of_match_table = s6_fts_match },
++	.probe = s6_fts_probe
++};
++
++module_i2c_driver(s6_fts_driver);
++MODULE_LICENSE("GPL");
+diff --git a/drivers/mfd/max77843.c b/drivers/mfd/max77843.c
+index 2a48577b1a79f268c7e68dc7ebe42ee2fc2c6e51..5a418e43471ce8bec6b0564924512cb78e3789e1 100644
+--- a/drivers/mfd/max77843.c
++++ b/drivers/mfd/max77843.c
+@@ -14,6 +14,7 @@
+ #include <linux/mfd/max77693-common.h>
+ #include <linux/mfd/max77843-private.h>
+ #include <linux/platform_device.h>
++#include <linux/of.h>
+ 
+ static const struct mfd_cell max77843_devs[] = {
+ 	{
+@@ -96,6 +97,10 @@ static int max77843_probe(struct i2c_client *i2c)
+ 	const struct i2c_device_id *id = i2c_client_get_device_id(i2c);
+ 	struct max77693_dev *max77843;
+ 	unsigned int reg_data;
++	bool staged_irqs =
++		of_machine_is_compatible("samsung,exynos7420-zerolte") &&
++		of_property_read_bool(i2c->dev.of_node,
++				      "samsung,zerolte-staged-irqs");
+ 	int ret;
+ 
+ 	max77843 = devm_kzalloc(&i2c->dev, sizeof(*max77843), GFP_KERNEL);
+@@ -115,6 +120,18 @@ static int max77843_probe(struct i2c_client *i2c)
+ 		return PTR_ERR(max77843->regmap);
+ 	}
+ 
++	/* Keep firmware-pending sources quiet until their handlers are ready. */
++	if (staged_irqs) {
++		ret = regmap_update_bits(max77843->regmap,
++					 MAX77843_SYS_REG_INTSRCMASK,
++					 MAX77843_INTSRC_MASK_MASK,
++					 MAX77843_INTSRC_MASK_MASK);
++		if (ret)
++			return ret;
++		dev_dbg(&i2c->dev,
++			"top-level sources masked before IRQ registration\n");
++	}
++
+ 	ret = regmap_add_irq_chip(max77843->regmap, max77843->irq,
+ 			IRQF_TRIGGER_LOW | IRQF_ONESHOT | IRQF_SHARED,
+ 			0, &max77843_irq_chip, &max77843->irq_data_topsys);
+@@ -137,15 +154,27 @@ static int max77843_probe(struct i2c_client *i2c)
+ 		goto err_pmic_id;
+ 	}
+ 
+-	ret = regmap_update_bits(max77843->regmap,
+-				 MAX77843_SYS_REG_INTSRCMASK,
+-				 MAX77843_INTSRC_MASK_MASK,
+-				 (unsigned int)~MAX77843_INTSRC_MASK_MASK);
++	ret = regmap_update_bits(
++		max77843->regmap, MAX77843_SYS_REG_INTSRCMASK,
++		MAX77843_INTSRC_MASK_MASK,
++		staged_irqs ? (MAX77843_INTSRCMASK_CHGR_MASK |
++			       MAX77843_INTSRCMASK_FG_MASK |
++			       MAX77843_INTSRCMASK_MUIC_MASK) :
++			      (unsigned int)~MAX77843_INTSRC_MASK_MASK);
+ 	if (ret < 0) {
+ 		dev_err(&i2c->dev, "Failed to unmask interrupt source\n");
+ 		goto err_pmic_id;
+ 	}
+ 
++	if (staged_irqs) {
++		ret = regmap_read(max77843->regmap, MAX77843_SYS_REG_INTSRCMASK,
++				  &reg_data);
++		if (ret)
++			goto err_pmic_id;
++		dev_dbg(&i2c->dev, "source mask before children=0x%02x\n",
++			reg_data);
++	}
++
+ 	ret = mfd_add_devices(max77843->dev, -1, max77843_devs,
+ 			      ARRAY_SIZE(max77843_devs), NULL, 0, NULL);
+ 	if (ret < 0) {
+diff --git a/drivers/opp/of.c b/drivers/opp/of.c
+index 9c4fd1f0e944aed53952a653d8c12244641fbaaf..01e4f196bc0db6280b8cf4393c9b1864d41fa97a 100644
+--- a/drivers/opp/of.c
++++ b/drivers/opp/of.c
+@@ -1307,6 +1307,11 @@ int dev_pm_opp_of_get_sharing_cpus(struct device *cpu_dev,
+ 			_opp_of_get_opp_desc_node(cpu_np, 0);
+ 
+ 		if (!tmp_np) {
++			/* Zerolte: APOLLO OPPs are shared; ATLAS is intentionally unmanaged. */
++			if (of_machine_is_compatible(
++				    "samsung,exynos7420-zerolte") &&
++			    of_device_is_compatible(cpu_np, "arm,cortex-a57"))
++				continue;
+ 			pr_err("%pOF: Couldn't find opp node\n", cpu_np);
+ 			return -ENOENT;
+ 		}
+diff --git a/drivers/pci/controller/dwc/Makefile b/drivers/pci/controller/dwc/Makefile
+index d4f88cfc6229fdddf7b921f378e1f6d3f2227b89..9ea8681d1768332ab1acdb115c5065c52369b336 100644
+--- a/drivers/pci/controller/dwc/Makefile
++++ b/drivers/pci/controller/dwc/Makefile
+@@ -61,3 +61,5 @@ obj-$(CONFIG_ARM64) += pcie-hisi.o
+ obj-$(CONFIG_ARM64) += pcie-tegra194-acpi.o
+ endif
+ endif
++
++obj-$(CONFIG_PCI_EXYNOS) += pci-zerolte.o
+diff --git a/drivers/pci/controller/dwc/pci-zerolte.c b/drivers/pci/controller/dwc/pci-zerolte.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..870dfc553c599d5172918e0bf11b95e0e7efd8a2
+--- /dev/null
++++ b/drivers/pci/controller/dwc/pci-zerolte.c
+@@ -0,0 +1,284 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Zerolte PCIe1 bring-up. Register sequence from Samsung Exynos7420
++ * pci-exynos.c/pci-exynos7420_cal.c, Copyright2013-2014 Samsung Electronics.
++ * Only the WLAN root complex, no modem controller or automatic retry.
++ */
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/interrupt.h>
++#include <linux/iopoll.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/pci.h>
++#include <linux/platform_device.h>
++#include "pcie-designware.h"
++struct s6_pcie {
++	raw_spinlock_t dbi_lock;
++	struct dw_pcie pci;
++	void __iomem *phy, *block, *pmu, *cmu, *pcs;
++	bool phy_started;
++	struct gpio_desc *enable, *perst;
++	struct clk_bulk_data clocks[12];
++};
++
++static struct s6_pcie *s6_ep(struct dw_pcie *pci)
++{
++	return dev_get_drvdata(pci->dev);
++}
++
++static bool s6_link(struct dw_pcie *pci)
++{
++	u32 s = readl(pci->elbi_base + 0x74) & 0x1f;
++
++	return s >= 0xd && s <= 0x15;
++}
++
++static int s6_start(struct dw_pcie *pci)
++{
++	writel(1, pci->elbi_base + 0x2c);
++	return 0;
++}
++
++static void s6_stop(struct dw_pcie *pci)
++{
++	writel(0, pci->elbi_base + 0x2c);
++}
++
++static irqreturn_t s6_irq(int irq, void *arg)
++{
++	struct s6_pcie *d = arg;
++	void __iomem *b = d->pci.elbi_base;
++	u32 level = readl(b + 4), pulse = readl(b), special = readl(b + 8);
++
++	if (!(level | pulse | special))
++		return IRQ_NONE;
++	if (level & BIT(1))
++		dw_handle_msi_irq(&d->pci.pp);
++	writel(pulse, b);
++	writel(level, b + 4);
++	writel(special, b + 8);
++	return IRQ_HANDLED;
++}
++
++static int s6_host_init(struct dw_pcie_rp *pp)
++{
++	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
++	struct s6_pcie *d = s6_ep(pci);
++	void __iomem *b = pci->elbi_base;
++	int i, r;
++	static const u32 cmn[] = { 1,	 0xf,  0xa6, 0x71, 0x90, 0x62, 0x20,
++				   0,	 0,    0xa7, 0xa,  0x37, 0x20, 8,
++				   0xef, 0xfc, 0x96, 0x14, 0,	 0x10, 0x68,
++				   1,	 0,    0,    4,	   0x20 };
++	static const u32 trsv[] = { 0x31, 0xf4, 0xf4, 0x80, 0x25, 0x40, 0xc0,
++				    3,	  0x35, 0x55, 0x4c, 0xc3, 0x10, 0x54,
++				    0x70, 0xc5, 0,    0x2f, 0x44, 0xa4, 0,
++				    0x3b, 0x34, 0xa7, 0x64, 0,	  0x1f, 0x83,
++				    0x1b, 1,	0xe0, 0,    0,	  2,	0,
++				    0,	  0,	0,    0,    0x1d, 0 };
++	d->perst = pci->pe_rst;
++	if (!d->perst)
++		return -EINVAL;
++	if (clk_get_rate(d->clocks[8].clk) != 24000000)
++		return dev_err_probe(
++			pci->dev, -EINVAL,
++			"WLAN PHY requires documented24MHz reference\n");
++	r = clk_bulk_prepare_enable(10, d->clocks);
++	if (r)
++		return r;
++	gpiod_set_value_cansleep(d->enable, 1);
++	msleep(150);
++	/* Match Samsung: release endpoint PERST before setting root-complex PHY. */
++	gpiod_set_value_cansleep(d->perst, 0);
++	usleep_range(18000, 20000);
++	writel(1, d->pmu);
++	writel(readl(d->phy + 0x15 * 4) & ~(0xf << 3), d->phy + 0x15 * 4);
++	writel(0, d->phy + 0x4e * 4);
++	writel(0, d->phy + 0x4f * 4);
++	writel(1, b + 0xf4);
++	writel(1, b + 0xf0);
++	writel(readl(d->cmu) | 1, d->cmu);
++	writel(readl(d->block) & ~(3 << 4), d->block);
++	writel((readl(d->block) & ~(3 << 2)) | (1 << 2), d->block);
++	writel(1, b + 0x130);
++	udelay(10);
++	writel(0, b + 0x130);
++	udelay(10);
++	writel(1, b + 0x134);
++	udelay(10);
++	writel(0, b + 0x134);
++	udelay(10);
++	for (i = 0; i < ARRAY_SIZE(cmn); i++)
++		writel(cmn[i], d->phy + i * 4);
++	for (i = 0; i < ARRAY_SIZE(trsv); i++)
++		writel(trsv[i], d->phy + (0x30 + i) * 4);
++	writel(2, d->pcs);
++	writel(readl(d->block) & ~BIT(7), d->block);
++	writel(readl(d->block) | BIT(7), d->block);
++	udelay(20);
++	writel(readl(d->block) & ~BIT(7), d->block);
++	r = clk_bulk_prepare_enable(2, &d->clocks[10]);
++	if (r)
++		return r;
++	writel(readl(b + 0x18) & ~BIT(1), b + 0x18);
++	writel(1, b + 0x38);
++	writel(readl(b), b);
++	writel(readl(b + 4), b + 4);
++	writel(readl(b + 8), b + 8);
++	r = devm_request_irq(pci->dev, pp->irq, s6_irq, IRQF_SHARED,
++			     "s6-wlan-pcie", d);
++	if (r)
++		return r;
++	writel(0x55, b + 0xc);
++	writel(BIT(1), b + 0x10);
++	writel(0, b + 0x14);
++	d->phy_started = true;
++	dev_dbg(pci->dev,
++		"Samsung7420 PHY sequence complete; bounded link training follows\n");
++	return 0;
++}
++/*
++ * Samsung7420 DBI access requires temporarily leaving automatic L1 mode.
++ * Serialize the sideband request with all configuration/MSI register access.
++ */
++static u32 s6_read_dbi(struct dw_pcie *pci, void __iomem *base, u32 reg,
++		       size_t size)
++{
++	struct s6_pcie *d = s6_ep(pci);
++	unsigned long flags;
++	u32 value = ~0U;
++
++	raw_spin_lock_irqsave(&d->dbi_lock, flags);
++	writel(1, pci->elbi_base + 0x40);
++	writel(0, pci->elbi_base + 0xf4);
++	dw_pcie_read(base + reg, size, &value);
++	writel(1, pci->elbi_base + 0xf4);
++	writel(0, pci->elbi_base + 0x40);
++	raw_spin_unlock_irqrestore(&d->dbi_lock, flags);
++	return value;
++}
++
++static void s6_write_dbi(struct dw_pcie *pci, void __iomem *base, u32 reg,
++			 size_t size, u32 value)
++{
++	struct s6_pcie *d = s6_ep(pci);
++	unsigned long flags;
++
++	raw_spin_lock_irqsave(&d->dbi_lock, flags);
++	writel(1, pci->elbi_base + 0x40);
++	writel(0, pci->elbi_base + 0xf4);
++	dw_pcie_write(base + reg, size, value);
++	writel(1, pci->elbi_base + 0xf4);
++	writel(0, pci->elbi_base + 0x40);
++	raw_spin_unlock_irqrestore(&d->dbi_lock, flags);
++}
++
++static const struct dw_pcie_ops s6_ops = { .read_dbi = s6_read_dbi,
++					   .write_dbi = s6_write_dbi,
++					   .link_up = s6_link,
++					   .start_link = s6_start,
++					   .stop_link = s6_stop };
++static const struct dw_pcie_host_ops s6_host_ops = { .init = s6_host_init };
++static void __iomem *s6_map(struct platform_device *pdev, const char *name)
++{
++	struct resource *res =
++		platform_get_resource_byname(pdev, IORESOURCE_MEM, name);
++	if (!res)
++		return ERR_PTR(-EINVAL);
++	/* Tiny SYSREG/PMU/CMU views coexist with their system providers. */
++	return devm_ioremap(&pdev->dev, res->start, resource_size(res)) ?:
++		       ERR_PTR(-ENOMEM);
++}
++
++static int s6_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct s6_pcie *d;
++	struct dw_pcie *pci;
++	int i, r, irq;
++	static const char *const names[] = { "bus",	"ahb",	    "master",
++					     "slave",	"dbi-gate", "pcs-gate",
++					     "async",	"link",	    "ref24",
++					     "refgate", "tx",	    "rx" };
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		return -ENODEV;
++	d = devm_kzalloc(dev, sizeof(*d), GFP_KERNEL);
++	if (!d)
++		return -ENOMEM;
++	pci = &d->pci;
++	pci->dev = dev;
++	pci->ops = &s6_ops;
++	dw_pcie_cap_set(pci, REQ_RES);
++	platform_set_drvdata(pdev, d);
++	raw_spin_lock_init(&d->dbi_lock);
++	pci->elbi_base = s6_map(pdev, "elbi");
++	if (IS_ERR(pci->elbi_base))
++		return PTR_ERR(pci->elbi_base);
++	pci->dbi_base = s6_map(pdev, "dbi");
++	if (IS_ERR(pci->dbi_base))
++		return PTR_ERR(pci->dbi_base);
++	d->phy = s6_map(pdev, "phy");
++	if (IS_ERR(d->phy))
++		return PTR_ERR(d->phy);
++	d->block = s6_map(pdev, "block");
++	if (IS_ERR(d->block))
++		return PTR_ERR(d->block);
++	d->pmu = s6_map(pdev, "pmu");
++	if (IS_ERR(d->pmu))
++		return PTR_ERR(d->pmu);
++	d->cmu = s6_map(pdev, "cmu");
++	if (IS_ERR(d->cmu))
++		return PTR_ERR(d->cmu);
++	d->pcs = s6_map(pdev, "pcs");
++	if (IS_ERR(d->pcs))
++		return PTR_ERR(d->pcs);
++	for (i = 0; i < 12; i++)
++		d->clocks[i].id = names[i];
++	r = devm_clk_bulk_get(dev, 12, d->clocks);
++	if (r)
++		return dev_err_probe(dev, r, "WLAN clocks\n");
++	d->enable = devm_gpiod_get(dev, "enable", GPIOD_OUT_LOW);
++	if (IS_ERR(d->enable))
++		return dev_err_probe(dev, PTR_ERR(d->enable), "WLAN enable\n");
++
++	irq = platform_get_irq(pdev, 0);
++	if (irq < 0)
++		return irq;
++	pci->pp.irq = irq;
++	pci->pp.msi_irq[0] = -ENODEV;
++	pci->pp.num_vectors = 32;
++	pci->pp.ops = &s6_host_ops;
++	r = dw_pcie_host_init(&pci->pp);
++	if (r) {
++		if (d->phy_started)
++			dev_err(dev,
++				"failed link state=%08x pulse=%08x level=%08x special=%08x block=%08x pmu=%08x\n",
++				readl(pci->elbi_base + 0x74),
++				readl(pci->elbi_base),
++				readl(pci->elbi_base + 4),
++				readl(pci->elbi_base + 8), readl(d->block),
++				readl(d->pmu));
++		if (d->perst)
++			gpiod_set_value_cansleep(d->perst, 1);
++		gpiod_set_value_cansleep(d->enable, 0);
++		return dev_err_probe(
++			dev, r, "WLAN root-complex link failed; no retry\n");
++	}
++	dev_dbg(dev, "PCIe1 root complex registered\n");
++	return 0;
++}
++
++static const struct of_device_id s6_match[] = {
++	{ .compatible = "samsung,zerolte-pcie-wlan" },
++	{}
++};
++
++static struct platform_driver s6_driver = {
++	.probe = s6_probe,
++	.driver = { .name = "s6-wlan-pcie", .of_match_table = s6_match }
++};
++
++module_platform_driver(s6_driver);
++MODULE_LICENSE("GPL");
+diff --git a/drivers/phy/samsung/phy-exynos5-usbdrd.c b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+index 8711a3b62c8e14462813370b0e51905196625995..a5b586b2ae30b248ca19aad71115f2878e0e8ab9 100644
+--- a/drivers/phy/samsung/phy-exynos5-usbdrd.c
++++ b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+@@ -940,6 +940,34 @@ static int exynos5_usbdrd_phy_init(struct phy *phy)
+ 	reg &= ~PHYCLKRST_PORTRESET;
+ 	writel(reg, phy_drd->reg_phy + EXYNOS5_DRD_PHYCLKRST);
+ 
++	/*
++	 * Galaxy S6 Edge opt-in USB2 VBUS-valid override.
++	 * Reapply after UTMI and PIPE3 init since both reset LINKSYSTEM.
++	 * Other Exynos models remain unaffected.
++	 * Experimental: forcing VBUS valid can keep the gadget logically attached
++	 * without a cable. Do not use this as an upstream generic fix.
++	 */
++	if (of_device_is_compatible(phy_drd->dev->of_node,
++				    "samsung,exynos7-usbdrd-phy") &&
++	    of_property_read_bool(phy_drd->dev->of_node,
++				  "samsung,g925i-force-vbus-valid")) {
++		u32 before_link, before_utmi, after_link, after_utmi;
++
++		before_link = readl(phy_drd->reg_phy + EXYNOS5_DRD_LINKSYSTEM);
++		before_utmi = readl(phy_drd->reg_phy + EXYNOS5_DRD_PHYUTMI);
++		writel(before_link | LINKSYSTEM_FORCE_BVALID |
++			       LINKSYSTEM_FORCE_VBUSVALID,
++		       phy_drd->reg_phy + EXYNOS5_DRD_LINKSYSTEM);
++		writel(before_utmi | PHYUTMI_VBUSVLDEXTSEL | PHYUTMI_VBUSVLDEXT,
++		       phy_drd->reg_phy + EXYNOS5_DRD_PHYUTMI);
++		after_link = readl(phy_drd->reg_phy + EXYNOS5_DRD_LINKSYSTEM);
++		after_utmi = readl(phy_drd->reg_phy + EXYNOS5_DRD_PHYUTMI);
++		dev_dbg(phy_drd->dev,
++			"VBUS-valid override phy=%u LINKSYSTEM %08x->%08x PHYUTMI %08x->%08x\n",
++			inst->phy_cfg->id, before_link, after_link, before_utmi,
++			after_utmi);
++	}
++
+ 	clk_bulk_disable_unprepare(phy_drd->drv_data->n_clks, phy_drd->clks);
+ 
+ 	return 0;
+diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
+index f0ede1cecb6a86957957ae74c3a1912b9fcf5a0f..0ef66ef151581fbaa22a06820b1042b4bbf8dad7 100644
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ -1187,3 +1187,13 @@ config MACSMC_POWER
+ 	  Say Y or M here if you have an Apple Silicon based Mac.
+ 
+ endif # POWER_SUPPLY
++
++config BATTERY_S6_MAX77843_RO
++	bool "SM-G925I MAX77843 read-only bring-up telemetry"
++	depends on POWER_SUPPLY && MFD_MAX77843 && I2C && OF
++	select REGMAP_I2C
++	help
++	  Read battery and charger telemetry on the Samsung Galaxy S6 Edge.
++	  Temperatures use the Exynos ADC and board-specific thermistor tables.
++	  This driver does not configure charging, interrupt masks or the
++	  fuel-gauge model, and preserves the firmware initialization.
+diff --git a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
+index 31fe4a145929a01346f363d22b933c0a1b4da215..9a16fe807ead3e5d783ded2bd28dc13b87d2a656 100644
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -133,3 +133,5 @@ obj-$(CONFIG_CHARGER_QCOM_SMB2)	+= qcom_smbx.o
+ obj-$(CONFIG_FUEL_GAUGE_MM8013)	+= mm8013.o
+ obj-$(CONFIG_MACSMC_POWER)	+= macsmc-power.o
+ obj-$(CONFIG_CHARGER_MAX77759)	+= max77759_charger.o
++
++obj-$(CONFIG_BATTERY_S6_MAX77843_RO) += s6_max77843_readonly.o
+diff --git a/drivers/power/supply/s6_max77843_readonly.c b/drivers/power/supply/s6_max77843_readonly.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..cb66cbf7421dd393b8992d8987c71ff7ebb7dc9b
+--- /dev/null
++++ b/drivers/power/supply/s6_max77843_readonly.c
+@@ -0,0 +1,455 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * SM-G925I bring-up: MAX77843 telemetry, no model/charger/IRQ writes.
++ * Units follow Samsung max77843_fuelgauge/charger and ModelGauge documentation.
++ */
++#include <linux/i2c.h>
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/jiffies.h>
++#include <linux/mfd/max77693-common.h>
++#include <linux/mfd/max77843-private.h>
++#include <linux/module.h>
++#include <linux/iio/consumer.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/power_supply.h>
++#include <linux/regmap.h>
++#include <linux/workqueue.h>
++
++struct s6_power {
++	struct iio_channel *battery_ntc, *charger_ntc;
++	struct max77693_dev *max;
++	struct regmap *fg;
++	struct power_supply *battery, *usb;
++	struct power_supply_desc battery_desc;
++	struct delayed_work poll;
++	bool external_temp, temp_enabled;
++};
++
++static bool s6_fg_readable(struct device *dev, unsigned int reg)
++{
++	switch (reg) {
++	case 0x00:
++	case 0x05:
++	case 0x06:
++	case 0x08:
++	case 0x09:
++	case 0x0a:
++	case 0x0b:
++	case 0x10:
++	case 0x19:
++	case 0x1d:
++		return true;
++	default:
++		return false;
++	}
++}
++
++static bool s6_fg_writeable(struct device *dev, unsigned int reg)
++{
++	return false;
++}
++
++static const struct regmap_config s6_fg_map = {
++	.reg_bits = 8,
++	.val_bits = 16,
++	.max_register = 0xff,
++	.val_format_endian = REGMAP_ENDIAN_LITTLE,
++	.cache_type = REGCACHE_NONE,
++	.readable_reg = s6_fg_readable,
++	.writeable_reg = s6_fg_writeable,
++};
++
++static enum power_supply_property s6_battery_props[] = {
++	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_PRESENT,
++	POWER_SUPPLY_PROP_TECHNOLOGY,
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_VOLTAGE_AVG,
++	POWER_SUPPLY_PROP_CURRENT_NOW,
++	POWER_SUPPLY_PROP_CURRENT_AVG,
++	POWER_SUPPLY_PROP_CHARGE_NOW,
++	POWER_SUPPLY_PROP_CHARGE_FULL,
++	/* Last: omitted if the temperature channel requires host updates. */
++	POWER_SUPPLY_PROP_TEMP,
++};
++
++/*
++ * OEM zerolte NTC tables; linear interpolation in tenths of a degree C.
++ * Reject open/short/outside calibration; never clamp a sensor failure.
++ */
++struct s6_ntc_point {
++	int adc, temp;
++};
++
++static const struct s6_ntc_point s6_battery_ntc[] = {
++	{ 280, 900 },	{ 326, 850 },	{ 383, 800 },	{ 429, 750 },
++	{ 489, 700 },	{ 559, 650 },	{ 631, 600 },	{ 727, 550 },
++	{ 807, 500 },	{ 925, 450 },	{ 1015, 400 },	{ 1114, 350 },
++	{ 1217, 300 },	{ 1341, 250 },	{ 1448, 200 },	{ 1545, 150 },
++	{ 1625, 100 },	{ 1712, 50 },	{ 1778, 0 },	{ 1830, -50 },
++	{ 1873, -100 }, { 1914, -150 }, { 1937, -200 },
++};
++
++static const struct s6_ntc_point s6_charger_ntc[] = {
++	{ 499, 750 },  { 538, 700 },   { 598, 650 },   { 717, 600 },
++	{ 835, 550 },  { 1026, 500 },  { 1124, 450 },  { 1240, 400 },
++	{ 1478, 350 }, { 1568, 300 },  { 1834, 250 },  { 2023, 200 },
++	{ 2189, 150 }, { 2429, 100 },  { 2631, 50 },   { 2851, 0 },
++	{ 2948, -50 }, { 3053, -100 }, { 3239, -150 }, { 3325, -200 },
++};
++
++static int s6_ntc_read(struct iio_channel *channel,
++		       const struct s6_ntc_point *table, unsigned int size,
++		       int *temp)
++{
++	int raw, ret;
++	unsigned int i;
++
++	ret = iio_read_channel_raw(channel, &raw);
++	if (ret < 0)
++		return ret;
++	if (raw < table[0].adc || raw > table[size - 1].adc)
++		return -ENODATA;
++	for (i = 1; i < size; i++) {
++		if (raw <= table[i].adc) {
++			*temp = table[i - 1].temp +
++				(raw - table[i - 1].adc) *
++					(table[i].temp - table[i - 1].temp) /
++					(table[i].adc - table[i - 1].adc);
++			return 0;
++		}
++	}
++	return -ENODATA;
++}
++
++static int s6_battery_get(struct power_supply *psy,
++			  enum power_supply_property prop,
++			  union power_supply_propval *val)
++{
++	struct s6_power *d = power_supply_get_drvdata(psy);
++	unsigned int raw, reg, status;
++	int ret;
++
++	switch (prop) {
++	case POWER_SUPPLY_PROP_TECHNOLOGY:
++		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
++		return 0;
++	case POWER_SUPPLY_PROP_STATUS:
++		ret = regmap_read(d->max->regmap_chg,
++				  MAX77843_CHG_REG_CHG_DTLS_01, &raw);
++		if (ret)
++			return ret;
++		switch (raw & 0xf) {
++		case 0:
++		case 1:
++		case 2:
++			val->intval = POWER_SUPPLY_STATUS_CHARGING;
++			break;
++		case 3:
++		case 4:
++			val->intval = POWER_SUPPLY_STATUS_FULL;
++			break;
++		case 5:
++		case 6:
++		case 7:
++			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
++			break;
++		case 8:
++		case 10:
++		case 11:
++			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
++			break;
++		default:
++			val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
++			break;
++		}
++		return 0;
++	case POWER_SUPPLY_PROP_PRESENT:
++		reg = 0x00;
++		break;
++	case POWER_SUPPLY_PROP_CAPACITY:
++		ret = regmap_read(d->fg, 0x00, &status);
++		if (ret)
++			return ret;
++		if (status &
++		    BIT(1)) /* POR: do not report an uninitialized SOC. */
++			return -ENODATA;
++		reg = 0x06;
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		reg = 0x09;
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_AVG:
++		reg = 0x19;
++		break;
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++		reg = 0x0a;
++		break;
++	case POWER_SUPPLY_PROP_CURRENT_AVG:
++		reg = 0x0b;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_NOW:
++		reg = 0x05;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_FULL:
++		reg = 0x10;
++		break;
++	case POWER_SUPPLY_PROP_TEMP:
++		return s6_ntc_read(d->battery_ntc, s6_battery_ntc,
++				   ARRAY_SIZE(s6_battery_ntc), &val->intval);
++	default:
++		return -EINVAL;
++	}
++	ret = regmap_read(d->fg, reg, &raw);
++	if (ret)
++		return ret;
++	switch (prop) {
++	case POWER_SUPPLY_PROP_PRESENT:
++		val->intval = !(raw & BIT(3));
++		break;
++	case POWER_SUPPLY_PROP_CAPACITY:
++		if (raw > 110 * 256)
++			return -ENODATA;
++		val->intval = min_t(unsigned int, raw / 256, 100);
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++	case POWER_SUPPLY_PROP_VOLTAGE_AVG:
++		val->intval = raw * 625 / 8; /* 78.125 uV/LSB. */
++		if (val->intval < 2500000 || val->intval > 5000000)
++			return -ENODATA;
++		break;
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++	case POWER_SUPPLY_PROP_CURRENT_AVG:
++		val->intval =
++			(s16)raw * 625 / 4; /* 156.25 uA/LSB at 10 mOhm. */
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_NOW:
++	case POWER_SUPPLY_PROP_CHARGE_FULL:
++		val->intval = raw * 500; /* uAh, 10 mOhm. */
++		break;
++	case POWER_SUPPLY_PROP_TEMP:
++		val->intval = (s16)raw * 10 / 256; /* tenths C. */
++		if (val->intval < -400 || val->intval > 1000)
++			return -ENODATA;
++		break;
++	default:
++		return -EINVAL;
++	}
++	return 0;
++}
++
++static enum power_supply_property s6_usb_props[] = {
++	POWER_SUPPLY_PROP_ONLINE,
++	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
++	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
++	POWER_SUPPLY_PROP_TEMP,
++};
++
++static int s6_usb_get(struct power_supply *psy, enum power_supply_property prop,
++		      union power_supply_propval *val)
++{
++	struct s6_power *d = power_supply_get_drvdata(psy);
++	unsigned int reg, raw;
++	int ret;
++
++	switch (prop) {
++	case POWER_SUPPLY_PROP_TEMP:
++		return s6_ntc_read(d->charger_ntc, s6_charger_ntc,
++				   ARRAY_SIZE(s6_charger_ntc), &val->intval);
++	case POWER_SUPPLY_PROP_ONLINE:
++		reg = MAX77843_CHG_REG_CHG_INT_OK;
++		break;
++	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
++		reg = MAX77843_CHG_REG_CHG_CNFG_09;
++		break;
++	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
++		reg = MAX77843_CHG_REG_CHG_CNFG_02;
++		break;
++	default:
++		return -EINVAL;
++	}
++	ret = regmap_read(d->max->regmap_chg, reg, &raw);
++	if (ret)
++		return ret;
++	switch (prop) {
++	case POWER_SUPPLY_PROP_ONLINE:
++		val->intval = !!(raw & MAX77843_CHG_CHGIN_OK);
++		break;
++	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
++		raw &= 0x7f;
++		val->intval = raw <= 3	  ? 100000 :
++			      raw >= 0x78 ? 4000000 :
++					    raw * 100000 / 3;
++		break;
++	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
++		raw &= 0x3f;
++		val->intval = raw <= 2 ? 100000 : raw * 50000;
++		break;
++	default:
++		return -EINVAL;
++	}
++	return 0;
++}
++
++static const struct power_supply_desc s6_usb_desc = {
++	.name = "s6-usb",
++	.type = POWER_SUPPLY_TYPE_USB,
++	.properties = s6_usb_props,
++	.num_properties = ARRAY_SIZE(s6_usb_props),
++	.get_property = s6_usb_get,
++};
++
++static ssize_t temperature_source_show(struct device *dev,
++				       struct device_attribute *attr, char *buf)
++{
++	return sysfs_emit(
++		buf,
++		"Exynos7420 ADC1 battery NTC, ADC3 charger NTC; OEM tables, fresh conversion per read\n");
++}
++
++static DEVICE_ATTR_RO(temperature_source);
++
++static ssize_t raw_snapshot_show(struct device *dev,
++				 struct device_attribute *attr, char *buf)
++{
++	struct s6_power *d = dev_get_drvdata(dev);
++	const unsigned int fg[] = { 0x00, 0x05, 0x06, 0x08, 0x09,
++				    0x0a, 0x0b, 0x10, 0x19, 0x1d };
++	const unsigned int chg[] = { 0xb2, 0xb3, 0xb4, 0xb7, 0xb9, 0xbb, 0xc0 };
++	unsigned int raw;
++	int i, ret, n = 0;
++
++	for (i = 0; i < ARRAY_SIZE(fg); i++) {
++		ret = regmap_read(d->fg, fg[i], &raw);
++		if (ret)
++			return ret;
++		n += sysfs_emit_at(buf, n, "FG %02x %04x\n", fg[i], raw);
++	}
++	for (i = 0; i < ARRAY_SIZE(chg); i++) {
++		ret = regmap_read(d->max->regmap_chg, chg[i], &raw);
++		if (ret)
++			return ret;
++		n += sysfs_emit_at(buf, n, "CHG %02x %02x\n", chg[i], raw);
++	}
++	return n;
++}
++
++static DEVICE_ATTR_RO(raw_snapshot);
++static struct attribute *s6_power_attrs[] = {
++	&dev_attr_temperature_source.attr,
++	&dev_attr_raw_snapshot.attr,
++	NULL,
++};
++
++static const struct attribute_group s6_power_group = { .attrs =
++							       s6_power_attrs };
++
++static void s6_power_poll(struct work_struct *work)
++{
++	struct s6_power *d =
++		container_of(to_delayed_work(work), struct s6_power, poll);
++	power_supply_changed(d->battery);
++	power_supply_changed(d->usb);
++	schedule_delayed_work(&d->poll, 15 * HZ);
++}
++
++static void s6_power_cancel(void *data)
++{
++	struct s6_power *d = data;
++
++	cancel_delayed_work_sync(&d->poll);
++}
++
++static int s6_power_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct s6_power *d;
++	struct i2c_client *client;
++	struct power_supply_config config = {};
++	unsigned int raw, rsense;
++	int ret;
++
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		return -ENODEV;
++	d = devm_kzalloc(dev, sizeof(*d), GFP_KERNEL);
++	if (!d)
++		return -ENOMEM;
++	d->battery_ntc = devm_iio_channel_get(dev, "battery-temp");
++	if (IS_ERR(d->battery_ntc))
++		return dev_err_probe(dev, PTR_ERR(d->battery_ntc),
++				     "battery NTC ADC\n");
++	d->charger_ntc = devm_iio_channel_get(dev, "charger-temp");
++	if (IS_ERR(d->charger_ntc))
++		return dev_err_probe(dev, PTR_ERR(d->charger_ntc),
++				     "charger NTC ADC\n");
++	d->max = dev_get_drvdata(dev->parent);
++	if (!of_property_read_bool(d->max->dev->of_node,
++				   "samsung,zerolte-power-readonly"))
++		return -ENODEV;
++	ret = of_property_read_u32(d->max->dev->of_node,
++				   "maxim,rsense-micro-ohms", &rsense);
++	if (ret || rsense != 10000)
++		return -EINVAL;
++	client = devm_i2c_new_dummy_device(dev, d->max->i2c->adapter,
++					   I2C_ADDR_FG);
++	if (IS_ERR(client))
++		return dev_err_probe(dev, PTR_ERR(client), "FG client\n");
++	d->fg = devm_regmap_init_i2c(client, &s6_fg_map);
++	if (IS_ERR(d->fg))
++		return dev_err_probe(dev, PTR_ERR(d->fg), "FG regmap\n");
++	ret = regmap_read(d->fg, 0x1d, &raw);
++	if (ret)
++		return dev_err_probe(dev, ret, "FG CONFIG read\n");
++	d->external_temp = !!(raw & BIT(8));
++	d->temp_enabled = !!(raw & BIT(9));
++	dev_dbg(dev, "read-only CONFIG=%04x Tex=%d Ten=%d Rsense=%u\n", raw,
++		d->external_temp, d->temp_enabled, rsense);
++	platform_set_drvdata(pdev, d);
++	config.drv_data = d;
++	d->battery_desc = (struct power_supply_desc){
++		.name = "s6-battery",
++		.type = POWER_SUPPLY_TYPE_BATTERY,
++		.properties = s6_battery_props,
++		.num_properties = ARRAY_SIZE(s6_battery_props),
++		.get_property = s6_battery_get,
++		.no_thermal = true,
++	};
++
++	d->battery = devm_power_supply_register(dev, &d->battery_desc, &config);
++	if (IS_ERR(d->battery))
++		return dev_err_probe(dev, PTR_ERR(d->battery),
++				     "battery supply\n");
++	d->usb = devm_power_supply_register(dev, &s6_usb_desc, &config);
++	if (IS_ERR(d->usb))
++		return dev_err_probe(dev, PTR_ERR(d->usb), "USB supply\n");
++	ret = devm_device_add_group(dev, &s6_power_group);
++	if (ret)
++		return ret;
++	INIT_DELAYED_WORK(&d->poll, s6_power_poll);
++	ret = devm_add_action_or_reset(dev, s6_power_cancel, d);
++	if (ret)
++		return ret;
++	schedule_delayed_work(&d->poll, 15 * HZ);
++	dev_dbg(dev,
++		"battery/USB telemetry ready; no FG/charger/IRQ register writes\n");
++	return 0;
++}
++
++static const struct platform_device_id s6_power_ids[] = {
++	{ "max77843-fuelgauge", 0 },
++	{},
++};
++
++MODULE_DEVICE_TABLE(platform, s6_power_ids);
++static struct platform_driver s6_power_driver = {
++	.driver = { .name = "s6-max77843-readonly" },
++	.probe = s6_power_probe,
++	.id_table = s6_power_ids,
++};
++
++module_platform_driver(s6_power_driver);
++MODULE_DESCRIPTION("SM-G925I MAX77843 read-only telemetry");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/regulator/Kconfig b/drivers/regulator/Kconfig
+index a54a549196fe3d933872ae065303f38ebaff9e94..ee5e77dc8bef1244174fa78e59a1906a293c95a4 100644
+--- a/drivers/regulator/Kconfig
++++ b/drivers/regulator/Kconfig
+@@ -1890,3 +1890,13 @@ config REGULATOR_QCOM_LABIBB
+ 	  for LCD display panel.
+ 
+ endif
++
++config REGULATOR_S6_TSP_AVDD
++	bool "Zerolte S2MPB02 LDO17 enable-only pilot"
++	depends on I2C && OF && REGULATOR
++	select REGMAP_I2C
++	help
++	  Provide the touchscreen analog supply on the Samsung Galaxy S6 Edge.
++	  Require the inherited LDO17 voltage selector to match 3.3 V before
++	  exposing the supply. Only its enable bit may be changed.
++	  Other regulator outputs and voltage selectors are left untouched.
+diff --git a/drivers/regulator/Makefile b/drivers/regulator/Makefile
+index 134eee274dbfb9d3ec240b8a62c396b7fbc79546..786cda934fd5291abaa418167ea0602d2217c69a 100644
+--- a/drivers/regulator/Makefile
++++ b/drivers/regulator/Makefile
+@@ -219,3 +219,5 @@ obj-$(CONFIG_REGULATOR_WM8400) += wm8400-regulator.o
+ obj-$(CONFIG_REGULATOR_WM8994) += wm8994-regulator.o
+ 
+ ccflags-$(CONFIG_REGULATOR_DEBUG) += -DDEBUG
++
++obj-$(CONFIG_REGULATOR_S6_TSP_AVDD) += s6-tsp-avdd.o
+diff --git a/drivers/regulator/s6-tsp-avdd.c b/drivers/regulator/s6-tsp-avdd.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae9b6d5b65d9642f43a7a2dce336b72812c52956
+--- /dev/null
++++ b/drivers/regulator/s6-tsp-avdd.c
+@@ -0,0 +1,91 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * S2MPB02 LDO17 (TSP AVDD), Samsung7420 table: 0x2e,600mV+25mV*n.
++ * Enable-only pilot: require inherited selector108=3.3V; never change it,
++ * never touch another output, interrupts or NVM.
++ */
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regmap.h>
++#include <linux/regulator/driver.h>
++static bool s6_avdd_readable(struct device *dev, unsigned int reg)
++{
++	return reg == 0 || reg == 0x2e;
++}
++
++static bool s6_avdd_writeable(struct device *dev, unsigned int reg)
++{
++	return reg == 0x2e;
++}
++
++static const struct regmap_config s6_avdd_map = {
++	.reg_bits = 8,
++	.val_bits = 8,
++	.max_register = 0x2e,
++	.readable_reg = s6_avdd_readable,
++	.writeable_reg = s6_avdd_writeable
++};
++
++static const struct regulator_ops s6_avdd_ops = {
++	.enable = regulator_enable_regmap,
++	.is_enabled = regulator_is_enabled_regmap
++};
++
++static const struct regulator_desc s6_avdd_desc = { .name = "s6-tsp-avdd",
++						    .of_match = "LDO17",
++						    .regulators_node =
++							    "regulators",
++						    .type = REGULATOR_VOLTAGE,
++						    .owner = THIS_MODULE,
++						    .ops = &s6_avdd_ops,
++						    .n_voltages = 1,
++						    .fixed_uV = 3300000,
++						    .enable_reg = 0x2e,
++						    .enable_mask = 0x80,
++						    .enable_time = 180 };
++static int s6_avdd_probe(struct i2c_client *client)
++{
++	struct regmap *map;
++	struct regulator_config cfg = {};
++	struct regulator_dev *rdev;
++	unsigned int id, value;
++	int r;
++
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte") ||
++	    client->addr != 0x59)
++		return -ENODEV;
++	map = devm_regmap_init_i2c(client, &s6_avdd_map);
++	if (IS_ERR(map))
++		return PTR_ERR(map);
++	r = regmap_read(map, 0, &id);
++	if (r)
++		return r;
++	r = regmap_read(map, 0x2e, &value);
++	if (r)
++		return r;
++	if (id == 0xff || (value & 0x7f) != 108)
++		return dev_err_probe(
++			&client->dev, -EINVAL,
++			"Unexpected S2MPB02/LDO17 state; no write\n");
++	dev_dbg(&client->dev,
++		"S2MPB02 id=%02x LDO17=%02x, fixed3.3V, enable-bit-only\n", id,
++		value);
++	cfg.dev = &client->dev;
++	cfg.regmap = map;
++	rdev = devm_regulator_register(&client->dev, &s6_avdd_desc, &cfg);
++	return PTR_ERR_OR_ZERO(rdev);
++}
++
++static const struct of_device_id s6_avdd_match[] = {
++	{ .compatible = "samsung,zerolte-tsp-avdd" },
++	{}
++};
++
++static struct i2c_driver s6_avdd_driver = {
++	.driver = { .name = "s6-tsp-avdd", .of_match_table = s6_avdd_match },
++	.probe = s6_avdd_probe
++};
++
++module_i2c_driver(s6_avdd_driver);
++MODULE_LICENSE("GPL");
+diff --git a/drivers/tty/serial/samsung_tty.c b/drivers/tty/serial/samsung_tty.c
+index 63d0232dffc20367222a6784ca0db154db438b71..7ee7e3bddc1b2fe701fe41f056b9587735a2359b 100644
+--- a/drivers/tty/serial/samsung_tty.c
++++ b/drivers/tty/serial/samsung_tty.c
+@@ -6,7 +6,8 @@
+  *	http://armlinux.simtec.co.uk/
+  */
+ 
+-/* Note on 2410 error handling
++/*
++ * Note on 2410 error handling
+  *
+  * The s3c2410 manual has a love/hate affair with the contents of the
+  * UERSTAT register in the UART blocks, and keeps marking some of the
+@@ -32,6 +33,8 @@
+ #include <linux/ioport.h>
+ #include <linux/math.h>
+ #include <linux/module.h>
++#include <linux/mfd/syscon.h>
++#include <linux/regmap.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/serial.h>
+@@ -128,6 +131,12 @@ struct s3c24xx_uart_dma {
+ 	int				rx_bytes_requested;
+ };
+ 
++/* Exynos7420 AUD UART routing, from the Samsung LPASS definitions. */
++#define EXYNOS7420_LPASS_CORE_SW_RESET 0x08
++#define EXYNOS7420_LPASS_UART_NORMAL BIT(10)
++#define EXYNOS7420_LPASS_INTR_CPU_MASK 0x58
++#define EXYNOS7420_LPASS_INTR_UART BIT(1)
++
+ struct s3c24xx_uart_port {
+ 	unsigned char			rx_enabled;
+ 	unsigned char			tx_enabled;
+@@ -152,6 +161,9 @@ struct s3c24xx_uart_port {
+ 	const struct s3c2410_uartcfg	*cfg;
+ 
+ 	struct s3c24xx_uart_dma		*dma;
++	struct regmap *lpass;
++	u32 lpass_irq_saved;
++	bool lpass_irq_active;
+ };
+ 
+ static void s3c24xx_serial_tx_chars(struct s3c24xx_uart_port *ourport);
+@@ -1159,6 +1171,65 @@ static void s3c24xx_serial_release_dma(struct s3c24xx_uart_port *p)
+ 	}
+ }
+ 
++/* Only an explicit Exynos7420 AUD UART phandle enables this path. */
++static void s3c24xx_serial_lpass_restore(struct s3c24xx_uart_port *ourport)
++{
++	int ret;
++
++	if (!ourport->lpass_irq_active)
++		return;
++
++	ret = regmap_update_bits(ourport->lpass, EXYNOS7420_LPASS_INTR_CPU_MASK,
++				 EXYNOS7420_LPASS_INTR_UART,
++				 ourport->lpass_irq_saved);
++	if (ret)
++		dev_warn(ourport->port.dev,
++			 "LPASS UART IRQ restore failed: %d\n", ret);
++	ourport->lpass_irq_active = false;
++}
++
++static int s3c24xx_serial_lpass_enable(struct s3c24xx_uart_port *ourport)
++{
++	u32 reset, before, after;
++	int ret;
++
++	if (!ourport->lpass)
++		return 0;
++
++	ret = regmap_read(ourport->lpass, EXYNOS7420_LPASS_CORE_SW_RESET,
++			  &reset);
++	if (ret)
++		return ret;
++	/* Do not force reset, power domains or PLL state in this experiment. */
++	if (!(reset & EXYNOS7420_LPASS_UART_NORMAL)) {
++		dev_err(ourport->port.dev, "LPASS UART held in reset (%#x)\n",
++			reset);
++		return -ENODEV;
++	}
++
++	ret = regmap_read(ourport->lpass, EXYNOS7420_LPASS_INTR_CPU_MASK,
++			  &before);
++	if (ret)
++		return ret;
++	ourport->lpass_irq_saved = before & EXYNOS7420_LPASS_INTR_UART;
++	ret = regmap_update_bits(ourport->lpass, EXYNOS7420_LPASS_INTR_CPU_MASK,
++				 EXYNOS7420_LPASS_INTR_UART,
++				 EXYNOS7420_LPASS_INTR_UART);
++	if (ret)
++		return ret;
++	ourport->lpass_irq_active = true;
++	ret = regmap_read(ourport->lpass, EXYNOS7420_LPASS_INTR_CPU_MASK,
++			  &after);
++	if (ret || !(after & EXYNOS7420_LPASS_INTR_UART)) {
++		s3c24xx_serial_lpass_restore(ourport);
++		return ret ? ret : -EIO;
++	}
++	dev_dbg(ourport->port.dev,
++		"LPASS UART reset=%#x CPU IRQ mask=%#x->%#x\n", reset, before,
++		after);
++	return 0;
++}
++
+ static void s3c64xx_serial_shutdown(struct uart_port *port)
+ {
+ 	struct s3c24xx_uart_port *ourport = to_ourport(port);
+@@ -1176,6 +1247,7 @@ static void s3c64xx_serial_shutdown(struct uart_port *port)
+ 		s3c24xx_serial_release_dma(ourport);
+ 
+ 	ourport->tx_in_progress = 0;
++	s3c24xx_serial_lpass_restore(ourport);
+ }
+ 
+ static void apple_s5l_serial_shutdown(struct uart_port *port)
+@@ -1213,6 +1285,9 @@ static int s3c64xx_serial_startup(struct uart_port *port)
+ 	int ret;
+ 
+ 	wr_regl(port, S3C64XX_UINTM, 0xf);
++	ret = s3c24xx_serial_lpass_enable(ourport);
++	if (ret)
++		return ret;
+ 	if (ourport->dma) {
+ 		ret = s3c24xx_serial_request_dma(ourport);
+ 		if (ret < 0) {
+@@ -1225,6 +1300,7 @@ static int s3c64xx_serial_startup(struct uart_port *port)
+ 			  s3c24xx_serial_portname(port), ourport);
+ 	if (ret) {
+ 		dev_err(port->dev, "cannot get irq %d\n", port->irq);
++		s3c24xx_serial_lpass_restore(ourport);
+ 		return ret;
+ 	}
+ 
+@@ -1320,7 +1396,8 @@ static void s3c24xx_serial_pm(struct uart_port *port, unsigned int level,
+ 	}
+ }
+ 
+-/* baud rate calculation
++/*
++ * baud rate calculation
+  *
+  * The UARTs on the S3C2410/S3C2440 can take their clocks from a number
+  * of different sources, including the peripheral clock ("pclk") and an
+@@ -1436,7 +1513,8 @@ static unsigned int s3c24xx_serial_getclk(struct s3c24xx_uart_port *ourport,
+ 	return best_quot;
+ }
+ 
+-/* udivslot_table[]
++/*
++ * udivslot_table[]
+  *
+  * This table takes the fractional value of the baud divisor and gives
+  * the recommended setting for the UDIVSLOT register.
+@@ -1739,7 +1817,8 @@ static void s3c24xx_serial_init_port_default(int index)
+ 	port->line = index;
+ }
+ 
+-/* s3c24xx_serial_resetport
++/*
++ * s3c24xx_serial_resetport
+  *
+  * reset the fifos and other the settings.
+  */
+@@ -1796,7 +1875,8 @@ static int s3c24xx_serial_enable_baudclk(struct s3c24xx_uart_port *ourport)
+ 	return -EINVAL;
+ }
+ 
+-/* s3c24xx_serial_init_port
++/*
++ * s3c24xx_serial_init_port
+  *
+  * initialise a single serial port from the platform device given
+  */
+@@ -2016,6 +2096,18 @@ static int s3c24xx_serial_probe(struct platform_device *pdev)
+ 	ourport->min_dma_size = max_t(int, ourport->port.fifosize,
+ 				    dma_get_cache_alignment());
+ 
++	/* LPASS is shared: use syscon and update only the UART routing bit. */
++	if (np && of_property_present(np, "samsung,lpass-syscon")) {
++		if (!of_device_is_compatible(np, "samsung,exynos7420-uart"))
++			return -EINVAL;
++		ourport->lpass = syscon_regmap_lookup_by_phandle(
++			np, "samsung,lpass-syscon");
++		if (IS_ERR(ourport->lpass))
++			return dev_err_probe(&pdev->dev,
++					     PTR_ERR(ourport->lpass),
++					     "LPASS syscon unavailable\n");
++	}
++
+ 	dev_dbg(&pdev->dev, "%s: initialising port %p...\n", __func__, ourport);
+ 
+ 	ret = s3c24xx_serial_init_port(ourport, pdev);
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index b2f65c4655251db905face4b569a704480ac786f..1c9718f1bea754a6b76fdc9ddfa72006949a3b91 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -1120,7 +1120,10 @@ static int exynos_ufs_setup_clocks(struct ufs_hba *hba, bool on,
+ 		if (ufs->opts & EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL)
+ 			exynos_ufs_disable_auto_ctrl_hcc(ufs);
+ 		exynos_ufs_ungate_clks(ufs);
+-	} else if (!on && status == POST_CHANGE) {
++	} else if (!on && status == ((ufs->opts &
++				      EXYNOS_UFS_OPT_GATE_BEFORE_CORE_OFF) ?
++					     PRE_CHANGE :
++					     POST_CHANGE)) {
+ 		exynos_ufs_gate_clks(ufs);
+ 		if (ufs->opts & EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL)
+ 			exynos_ufs_enable_auto_ctrl_hcc(ufs);
+@@ -2223,6 +2226,28 @@ static const struct exynos_ufs_drv_data exynos_ufs_drvs = {
+ 	.post_pwr_change	= exynos7_ufs_post_pwr_change,
+ };
+ 
++/* Exynos7420 firmware owns UFSPR; direct access can raise SError. */
++static const struct exynos_ufs_drv_data exynos7420_ufs_drvs = {
++	.uic_attr = &exynos7_uic_attr,
++	.quirks = UFSHCD_QUIRK_PRDT_BYTE_GRAN |
++		  UFSHCI_QUIRK_BROKEN_REQ_LIST_CLR | UFSHCI_QUIRK_BROKEN_HCE |
++		  UFSHCI_QUIRK_SKIP_RESET_INTR_AGGR |
++		  UFSHCD_QUIRK_BROKEN_OCS_FATAL_ERROR |
++		  UFSHCI_QUIRK_SKIP_MANUAL_WB_FLUSH_CTRL |
++		  UFSHCD_QUIRK_SKIP_DEF_UNIPRO_TIMEOUT_SETTING,
++	.opts = EXYNOS_UFS_OPT_HAS_APB_CLK_CTRL |
++		EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL |
++		EXYNOS_UFS_OPT_BROKEN_RX_SEL_IDX |
++		EXYNOS_UFS_OPT_SKIP_CONNECTION_ESTAB |
++		EXYNOS_UFS_OPT_USE_SW_HIBERN8_TIMER |
++		EXYNOS_UFS_OPT_UFSPR_SECURE |
++		EXYNOS_UFS_OPT_GATE_BEFORE_CORE_OFF,
++	.pre_link = exynos7_ufs_pre_link,
++	.post_link = exynos7_ufs_post_link,
++	.pre_pwr_change = exynos7_ufs_pre_pwr_change,
++	.post_pwr_change = exynos7_ufs_post_pwr_change,
++};
++
+ static struct exynos_ufs_uic_attr gs101_uic_attr = {
+ 	.tx_trailingclks		= 0xff,
+ 	.pa_dbg_opt_suite1_val		= 0x90913C1C,
+@@ -2310,10 +2335,10 @@ static const struct exynos_ufs_drv_data exynosautov920_ufs_drvs = {
+ };
+ 
+ static const struct of_device_id exynos_ufs_of_match[] = {
+-	{ .compatible = "google,gs101-ufs",
+-	  .data	      = &gs101_ufs_drvs },
+-	{ .compatible = "samsung,exynos7-ufs",
+-	  .data	      = &exynos_ufs_drvs },
++	{ .compatible = "samsung,exynos7420-ufs",
++	  .data = &exynos7420_ufs_drvs },
++	{ .compatible = "google,gs101-ufs", .data = &gs101_ufs_drvs },
++	{ .compatible = "samsung,exynos7-ufs", .data = &exynos_ufs_drvs },
+ 	{ .compatible = "samsung,exynosautov9-ufs",
+ 	  .data	      = &exynosauto_ufs_drvs },
+ 	{ .compatible = "samsung,exynosautov9-ufs-vh",
+diff --git a/drivers/ufs/host/ufs-exynos.h b/drivers/ufs/host/ufs-exynos.h
+index abe7e472759e94fef353e9a97bc9b55f6a0324c1..466088accaf6c6e8db1ea1728f34ecd32784961f 100644
+--- a/drivers/ufs/host/ufs-exynos.h
++++ b/drivers/ufs/host/ufs-exynos.h
+@@ -245,6 +245,7 @@ struct exynos_ufs {
+ #define EXYNOS_UFS_OPT_SKIP_CONFIG_PHY_ATTR	BIT(5)
+ #define EXYNOS_UFS_OPT_UFSPR_SECURE		BIT(6)
+ #define EXYNOS_UFS_OPT_TIMER_TICK_SELECT	BIT(7)
++#define EXYNOS_UFS_OPT_GATE_BEFORE_CORE_OFF BIT(8)
+ };
+ 
+ #define for_each_ufs_rx_lane(ufs, i) \
+diff --git a/include/dt-bindings/clock/exynos7-clk.h b/include/dt-bindings/clock/exynos7-clk.h
+index fce33c7050c85c296df9c6df4af08587b8c44c6b..b612e09e91f4e9f9e8e9df442d9d6b42d33577db 100644
+--- a/include/dt-bindings/clock/exynos7-clk.h
++++ b/include/dt-bindings/clock/exynos7-clk.h
+@@ -156,7 +156,7 @@
+ #define DOUT_PCLK_FSYS1			13
+ #define PCLK_GPIO_FSYS1			14
+ #define MOUT_FSYS1_PHYCLK_SEL1		15
+-#define FSYS1_NR_CLK			16
++#define FSYS1_NR_CLK 32
+ 
+ /* MSCL */
+ #define USERMUX_ACLK_MSCL_532		1
+@@ -200,5 +200,8 @@
+ #define PCLK_I2S			3
+ #define PCLK_PCM			4
+ #define ACLK_ADMA			5
+-#define AUD_NR_CLK			6
++#define SCLK_UART_AUD 6
++#define PCLK_UART_AUD 7
++#define PCLK_GPIO_AUD 8
++#define AUD_NR_CLK 9
+ #endif /* _DT_BINDINGS_CLOCK_EXYNOS7_H */
+diff --git a/kernel/Makefile b/kernel/Makefile
+index 1e1a31673577d6ab58a0ca11013ff52531b421a5..330607a9ec500845dde878a2ab962e406456fa44 100644
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -207,3 +207,6 @@ $(obj)/kheaders.md5: $(obj)/kheaders-srclist FORCE
+ 	$(call filechk,kheaders_md5sum)
+ 
+ clean-files := kheaders.md5 kheaders-srclist kheaders-objlist
++
++# SM-G925I experimental pre-userspace diagnosis (DT opt-in).
++obj-y += s6_bootdiag.o
+diff --git a/kernel/s6_bootdiag.c b/kernel/s6_bootdiag.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..08333779b500f087ca99e3680c8a65718d6b6546
+--- /dev/null
++++ b/kernel/s6_bootdiag.c
+@@ -0,0 +1,198 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* Experimental SM-G925I pre-userspace diagnostic; no partition access. */
++#include <linux/cpu.h>
++#include <linux/delay.h>
++#include <linux/init.h>
++#include <linux/i2c.h>
++#include <linux/rtmutex.h>
++#include <linux/kernel.h>
++#include <linux/kernel_stat.h>
++#include <linux/kthread.h>
++#include <linux/mfd/syscon.h>
++#include <linux/of.h>
++#include <linux/pid.h>
++#include <linux/rcupdate.h>
++#include <linux/regmap.h>
++#include <linux/sched/debug.h>
++#include <linux/sched/task.h>
++
++static struct regmap *s6_pmu;
++static bool s6_recovery_enabled;
++
++static bool s6_before_userspace(void)
++{
++	return READ_ONCE(system_state) == SYSTEM_SCHEDULING;
++}
++
++/* Inspect adapter metadata only: no bus transfer and no core_lock acquisition. */
++static void s6_i2c_owner_snapshot(void)
++{
++	struct device *dev;
++	struct i2c_adapter *adap;
++	struct task_struct *owner;
++	char name[16];
++	int nr;
++
++	for (nr = 0; nr < 4; nr++) {
++		snprintf(name, sizeof(name), "i2c-%d", nr);
++		dev = bus_find_device_by_name(&i2c_bus_type, NULL, name);
++		if (!dev)
++			continue;
++		adap = i2c_verify_adapter(dev);
++		if (!adap) {
++			put_device(dev);
++			continue;
++		}
++		rcu_read_lock();
++		owner = rt_mutex_owner(&adap->bus_lock.rtmutex);
++		if (owner)
++			get_task_struct(owner);
++		rcu_read_unlock();
++		pr_emerg("bus=%s name=%s flags=%lx owner=%p\n", name,
++			 adap->name, READ_ONCE(adap->locked_flags), owner);
++		if (owner) {
++			pr_emerg(
++				"I2C OWNER pid=%d comm=%s state=%x; stack follows\n",
++				task_pid_nr(owner), owner->comm,
++				READ_ONCE(owner->__state));
++			sched_show_task(owner);
++			put_task_struct(owner);
++		}
++		put_device(dev);
++	}
++}
++
++static void s6_boot_snapshot(unsigned int elapsed)
++{
++	struct task_struct *init;
++
++	pr_emerg("stalled before userspace at %us; blocked tasks follow\n",
++		 elapsed);
++	show_state_filter(TASK_UNINTERRUPTIBLE);
++	rcu_read_lock();
++	init = pid_task(find_vpid(1), PIDTYPE_PID);
++	if (init)
++		get_task_struct(init);
++	rcu_read_unlock();
++	if (init) {
++		pr_emerg("PID1 stack (last, for framebuffer capture)\n");
++		sched_show_task(init);
++		put_task_struct(init);
++	}
++	s6_i2c_owner_snapshot();
++	{
++		unsigned int irq, count;
++
++		for (irq = 0; irq < 128; irq++) {
++			count = kstat_irqs_cpu(irq, 0);
++			if (count)
++				pr_emerg("irq=%u count=%u\n", irq, count);
++		}
++	}
++	pr_emerg("snapshot %us complete; USB may not be initialized\n",
++		 elapsed);
++}
++
++static void s6_boot_recover_once(void)
++{
++	unsigned int old_mode, readback;
++	int ret;
++
++	/* The initramfs starts only after SYSTEM_RUNNING. Never reset a live root. */
++	if (!s6_recovery_enabled || !s6_before_userspace() ||
++	    num_online_cpus() != 1)
++		return;
++	ret = regmap_read(s6_pmu, 0x80c, &old_mode);
++	if (ret)
++		goto failed;
++	ret = regmap_write(s6_pmu, 0x80c, 0x12345674);
++	if (ret)
++		goto failed;
++	ret = regmap_read(s6_pmu, 0x80c, &readback);
++	if (ret || readback != 0x12345674) {
++		regmap_write(s6_pmu, 0x80c, old_mode);
++		goto failed;
++	}
++	if (!s6_before_userspace()) {
++		regmap_write(s6_pmu, 0x80c, old_mode);
++		pr_emerg("userspace reached; recovery cancelled\n");
++		return;
++	}
++	pr_emerg("recovery mode readback verified; one PMU restart at 120s\n");
++	/*
++	 * Same syscon register/mask as the already validated DT restart driver.
++	 * Avoid device_shutdown(): the task holding a probe mutex may be stuck.
++	 * No filesystems have been mounted by our guarded initramfs at this stage.
++	 */
++	ret = regmap_update_bits(s6_pmu, 0x400, 1, 1);
++	if (!ret) {
++		msleep(1000);
++		regmap_write(s6_pmu, 0x80c, old_mode);
++	}
++failed:
++	pr_emerg("restart unavailable/failed; STOP, manual TWRP required\n");
++}
++
++static int s6_boot_worker(void *unused)
++{
++	msleep(45000);
++	if (!s6_before_userspace())
++		return 0;
++	s6_boot_snapshot(45);
++	msleep(45000);
++	if (!s6_before_userspace())
++		return 0;
++	s6_boot_snapshot(90);
++	msleep(30000);
++	s6_boot_recover_once();
++	return 0;
++}
++
++static int __init s6_bootdiag_init(void)
++{
++	struct device_node *chosen, *pmu, *mode, *reset, *target;
++	struct task_struct *worker;
++	u32 mode_off, recovery, reset_off, reset_mask;
++	bool valid;
++
++	if (!of_machine_is_compatible("samsung,exynos7420-zerolte"))
++		return 0;
++	chosen = of_find_node_by_path("/chosen");
++	if (!of_property_read_bool(chosen, "samsung,s6-bootdiag")) {
++		of_node_put(chosen);
++		return 0;
++	}
++	s6_recovery_enabled =
++		of_property_read_bool(chosen, "samsung,s6-bootdiag-recovery");
++	of_node_put(chosen);
++	pmu = of_find_node_by_path("/soc@0/system-controller@105c0000");
++	mode = of_get_child_by_name(pmu, "reboot-mode");
++	reset = of_get_child_by_name(pmu, "syscon-reboot");
++	target = of_parse_phandle(reset, "regmap", 0);
++	valid = pmu && of_device_is_compatible(pmu, "samsung,exynos7-pmu") &&
++		of_device_is_compatible(mode, "syscon-reboot-mode") &&
++		of_device_is_compatible(reset, "syscon-reboot") &&
++		target == pmu &&
++		!of_property_read_u32(mode, "offset", &mode_off) &&
++		mode_off == 0x80c &&
++		!of_property_read_u32(mode, "mode-recovery", &recovery) &&
++		recovery == 0x12345674 &&
++		!of_property_read_u32(reset, "offset", &reset_off) &&
++		reset_off == 0x400 &&
++		!of_property_read_u32(reset, "mask", &reset_mask) &&
++		reset_mask == 1;
++	if (valid) {
++		s6_pmu = syscon_node_to_regmap(pmu);
++		valid = !IS_ERR(s6_pmu);
++	}
++	s6_recovery_enabled &= valid;
++	of_node_put(target);
++	of_node_put(reset);
++	of_node_put(mode);
++	of_node_put(pmu);
++	pr_info("boot snapshots at 45/90s; pre-userspace recovery at 120s=%d\n",
++		s6_recovery_enabled);
++	worker = kthread_run(s6_boot_worker, NULL, "s6-bootdiag");
++	return PTR_ERR_OR_ZERO(worker);
++}
++core_initcall(s6_bootdiag_init);

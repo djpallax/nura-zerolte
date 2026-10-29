@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+description="Galaxy S6 native Wayland/Plasma with Panfrost GLES"
+command="/usr/local/bin/s6-plasma-native-session"
+command_user="mobile:mobile"
+command_background="yes"
+pidfile="/run/s6-native.pid"
+output_log="/run/s6-native/session.log"
+error_log="/run/s6-native/session.log"
+depend() { need localmount dbus udev; after s6-wlan-ssh; }
+start_pre() {
+ [ -c /dev/dri/card0 ] && [ -c /dev/dri/renderD128 ] || return 1
+ [ -r /usr/local/lib/s6-kwin-drm-nonblock.so ] && [ -x /usr/local/sbin/s6-vt-mode ] || return 1
+ mount -o remount,size=192m /run || return 1
+ checkpath -d -m 0700 -o mobile:mobile /run/s6-native /run/s6-native/runtime /run/s6-native/cache
+ udevadm trigger --action=add --subsystem-match=drm
+ udevadm trigger --action=add --subsystem-match=input
+ udevadm settle --timeout=10 || return 1
+ /usr/local/sbin/s6-vt-mode graphics
+}
+stop_post() {
+ pkill -TERM -u mobile '.' 2>/dev/null || true
+ sleep 1
+ pkill -KILL -u mobile '.' 2>/dev/null || true
+ /usr/local/sbin/s6-vt-mode text || true
+}

@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+description="Key-only SSH over the preconfigured USB ECM link"
+command="/sbin/dropbear"
+command_args="-F -s -j -k -p 192.168.77.2:22 -r /etc/dropbear/dropbear_ed25519_host_key -P /run/dropbear-server.pid"
+command_background="yes"
+pidfile="/run/ramroot1-ssh.pid"
+output_log="/run/ramroot1-ssh.log"
+error_log="/run/ramroot1-ssh.log"
+start_pre() {
+    [ -e /sys/class/net/usb0 ] || return 1
+    chmod 700 /root /root/.ssh
+}
+start_post() {
+    echo RAMROOT1_OPENRC_SSH_STARTED >>/run/ramroot1-openrc.log
+}

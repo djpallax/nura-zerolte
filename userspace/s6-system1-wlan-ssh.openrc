@@ -1,0 +1,21 @@
+#!/sbin/openrc-run
+# Additional key-only listener bound exclusively to the current WLAN IPv4.
+description="Key-only SSH restricted to the WLAN address"
+command="/sbin/dropbear"
+command_background="yes"
+pidfile="/run/s6-wlan-ssh.pid"
+output_log="/run/s6-wlan-ssh.log"
+error_log="/run/s6-wlan-ssh.log"
+depend() { need localmount; after networkmanager ramroot1-ssh; }
+start_pre() {
+ local address n=0
+ while [ "$n" -lt 15 ]; do
+  ip -4 addr show dev wlan0 | grep -q "inet " && break
+  sleep 1;n=$((n+1))
+ done
+ address=$(ip -4 addr show dev wlan0 | awk '/inet / {split($2,a,"/");print a[1];exit}')
+ case "$address" in ''|0.0.0.0|127.*|*[!0-9.]*) eerror "No WLAN IPv4 address";return 1;;esac
+ command_args="-F -s -j -k -p ${address}:22 -r /etc/dropbear/dropbear_ed25519_host_key -P /run/s6-wlan-dropbear-server.pid"
+ chmod 700 /root /root/.ssh
+ echo "$address" > /run/s6-wlan-listen-address
+}

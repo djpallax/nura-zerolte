@@ -1,0 +1,10 @@
+#!/sbin/openrc-run
+description="Initialize S6 WLAN in udev before NetworkManager"
+depend() { need udev; before networkmanager; }
+start() {
+ local n=0
+ while [ ! -d /sys/class/net/wlan0 ] && [ "$n" -lt 20 ]; do sleep 1;n=$((n+1));done
+ [ -d /sys/class/net/wlan0 ] || return 1
+ udevadm trigger --action=add --subsystem-match=net --sysname-match=wlan0
+ udevadm settle --timeout=10
+}

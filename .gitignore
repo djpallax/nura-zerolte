@@ -1,0 +1,23 @@
+/build/
+/dist/
+/private/
+__pycache__/
+*.pyc
+*.img
+*.tar
+*.tar.gz
+*.zip
+*.apk
+*.pem
+*.key
+*.nmconnection
+authorized_keys
+known_hosts
+shadow
+machine-id
+dropbear_*_host_key
+ssh_host_*
+.env
+
+# Kernel build bundles and per-device BOOT envelopes contain local data.
+/deps/
