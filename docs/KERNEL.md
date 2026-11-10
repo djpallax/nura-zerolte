@@ -3,8 +3,8 @@
 For the complete build-and-install workflow, use [INSTALL.md](INSTALL.md).
 The kernel.py commands below are lower-level kernel-only operations.
 
-First commit and push the reviewed fork to djpallax/linux-zerolte, branch
-zerolte-7.2.12. Do not apply the fallback patch to that branch again.
+Use the fork when it matches the locked tree. The upstream fallback below
+builds the same source when the fork branch has a different tree.
 
 ## Build from the fork
 
@@ -53,5 +53,4 @@ Never run preparation over personal modifications.
 
 Source/config identity is pinned. Byte-identical artifacts also require pinned
 toolchain, build user/host/time/version and every firmware/initramfs input; those
-full release constraints are not implemented. Hardware results still belong to
-earlier development images, not a new regression test of the cleaned candidate.
+full release constraints are not implemented. See [INSTALL.md](INSTALL.md) for the physical verification steps.

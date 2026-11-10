@@ -4,12 +4,12 @@
   "kernel": {
     "upstream": "https://kernel.googlesource.com/pub/scm/linux/kernel/git/stable/linux-stable.git",
     "base_commit": "cc9de5d4b5ab6459f5774946aa3195ad51236fa8",
-    "patch_sha256": "965363e382e7b32c3dc87f6d47fdd10947a154907df8cbecb9ecf6c7d9757aa1",
-    "config_sha256": "18fef1053dbe8b70679831e1ab28b3e537bc55f378aeeb7b284c09246ce197c3",
+    "patch_sha256": "180984a4e345b2ce6b7e01d7313cbeb201e25537af840b5c7a49cf2a4504054d",
+    "config_sha256": "7fed7d96b2a0eb9300ea8f972478d5c2bda00438c031ea0832ffdc5aecc1aa87",
     "fork_url": "https://github.com/djpallax/linux-zerolte.git",
     "branch": "zerolte-7.2.12",
-    "fork_commit": null,
-    "source_tree": "fb1f50f9308bda4faf59d907dc6bb1bfe479cf91",
+    "fork_commit": "4244fc039c67df34a445f7bdb0556d4e7f369466",
+    "source_tree": "b04de530d8159f64a46b2f6c9a2a91f0e7931cd3",
     "patch": "kernel/zerolte.patch",
     "config": "kernel/zerolte.config"
   },
@@ -42,15 +42,15 @@
     "s6-system1-wlan-ssh.openrc",
     "s6-system2-buttons.py",
     "s6-system2-idle.sh",
-    "s6-vt-mode.c"
+    "s6-vt-mode.c",
+    "s6-zram.openrc"
   ],
-  "snapshot": "publication cleanup of SYSTEM2, compile validated 2026-10-29",
+  "snapshot": "2026-11-10 thermal recovery and compressed swap candidate",
   "kernel_validation": {
-    "Image_sha256": "ff2e546268c95ffabc8d536f3c956bdbddb7a54749b7e94cd4a4e925dbf65e24",
-    "compiler": "Clang/LLD 18.1.3",
+    "Image_sha256": "8d31fe028b058f060e84717be9c9c1ffd61a5f62a9f45bf7a8474fc0e1a8fe9d",
+    "compiler": "Clang/LLD 23.1.4",
     "full_build_CONFIG_WERROR": true,
-    "port_objects_W1": 22,
-    "cleaned_candidate_hardware_tested": false
+    "cleaned_candidate_hardware_tested": true
   },
   "busybox": {
     "version": "1.37.0",
@@ -65,7 +65,7 @@
   "integration_inputs": {
     "configs/busybox.config": "d0aac89887fbcce70727d20ae8f2f7e7b4400f76d29b0419f71d39e2a01cd0ed",
     "configs/uniloader.config": "8e46ac63cd078a5a446b0653e1c80971a28e5e3df943e9ec7badcf811cccc5c2",
-    "rescue/init.sh": "251870bc8d15d26654079c1234162184fb9d45f544aef43ac4771aa1d3221b78",
+    "rescue/init.sh": "73364e931cc68f13c7fa77a1ff709f34d618bbed48677cc9061d3c061dafc13d",
     "rescue/usb-setup.sh": "ada3760398ed8866e78446fdda34f6439976b931ca355aece4312a018ec471ee",
     "rescue/reboot-recovery.S": "381a059edf8bd8d6329aa214cef96165f8c2337d0d49e1f76d5fffb07b43a65d",
     "kernel/zerolte-system2.dts": "55481704739f9e2283e79c606f7289a373351a647bff62bc5236deb4cb60a1fb"

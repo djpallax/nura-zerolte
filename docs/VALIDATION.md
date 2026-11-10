@@ -1,4 +1,23 @@
-# Cleaned source preparation validation
+# Validation
+
+## SM-G925I hardware pass on 2026-11-10
+
+- The updated fallback patch applied to the pinned Linux 7.2.12 base and
+  produced the tree recorded in `sources.lock.json`.
+- The ARM64 Image built with Clang/LLD 23.1.4 and `CONFIG_WERROR=y`.
+- The public RAM-rescue bundle passed BOOT readback and the USB nonce probe.
+  The serial console confirmed RAM root, no mounted persistent partition,
+  and read-only UFS.
+- The userdata bundle passed BOOT readback and the USB nonce probe,
+  booted the existing Nura root, exposed all eight CPUs, associated over
+  Wi-Fi and reported the Bluetooth controller powered on.
+- The OpenRC service enabled 512 MiB of LZ4 swap. A separate temporary
+  zram device accepted and returned 64 MiB of synthetic data, using about
+  4.8 MiB of backing memory. No application-level speedup was measured.
+- The BOOT installer and rootfs provisioning remain separate. This pass
+  reused the development phone's existing Nura filesystem.
+
+## Original source export on 2026-10-29
 
 Updated 2026-10-29. The integration snapshot uses the cleaned publication kernel,
 replacing the initial diagnostic-heavy SYSTEM2 patch.

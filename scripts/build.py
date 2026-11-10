@@ -18,6 +18,11 @@ from bootlib import FLOOR, CAPACITY, sha, require, image64, newc, load_bundle
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = json.loads((ROOT / 'sources.lock.json').read_text())
 
+# Configurable toolchain prefix via environment variable
+TOOLCHAIN_PREFIX = os.environ.get('NURA_TOOLCHAIN_PREFIX', 'aarch64-linux-gnu-')
+# Derive clang target from prefix: aarch64-none-linux-gnu- -> aarch64-none-linux-gnu
+TOOLCHAIN_CLANG_TARGET = TOOLCHAIN_PREFIX.rstrip('-')
+
 
 def space(path):
     require(shutil.disk_usage(path).free >= FLOOR, 'Less than 12 GiB free; stopped without deleting files')
@@ -61,9 +66,21 @@ def main():
     p.add_argument('--loader-source', type=Path, help='Optional clean checkout at the pinned uniLoader commit')
     p.add_argument('--kernel-image', type=Path, help='Reuse only the exact previously validated Image hash in the lock')
     a = p.parse_args()
+    firmware = {}
+    if a.root_mode == 'userdata':
+        require(a.firmware_dir is not None, 'userdata mode requires --firmware-dir; see docs/INSTALL.md')
+        for name in ['brcm/brcmfmac4358-pcie.bin', 'brcm/brcmfmac4358-pcie.txt',
+                     'brcm/BCM4358A3.samsung,exynos7420-zerolte.hcd', 'regulatory.db', 'regulatory.db.p7s']:
+            path = a.firmware_dir / name
+            require(path.is_file() and not path.is_symlink(), 'Missing regular firmware file: ' + name)
+            data = path.read_bytes()
+            require(data, 'Empty firmware file: ' + name)
+            if name.endswith('.txt'):
+                require(b'macaddr=' not in data.lower(), 'Remove a device-specific macaddr from the NVRAM input before sharing')
+            firmware['lib/firmware/' + name] = data
     for name, expected in LOCK['integration_inputs'].items():
         require(sha((ROOT / name).read_bytes()) == expected, 'Changed integration input requires review/lock update: ' + name)
-    for tool in ['git', 'make', 'clang', 'ld.lld', 'dtc', 'fdtput', 'aarch64-linux-gnu-gcc']:
+    for tool in ['git', 'make', 'clang', 'ld.lld', 'dtc', 'fdtput'] + [TOOLCHAIN_PREFIX + t for t in ['gcc', 'ar', 'as', 'ld']]:
         require(shutil.which(tool), 'Missing host tool: ' + tool)
     a.work = a.work.resolve()
     a.output = a.output.resolve()
@@ -83,21 +100,10 @@ def main():
     image64(image.read_bytes())
     dtb = logs / 'zerolte.dtb'
     run(['dtc', '-I', 'dts', '-O', 'dtb', '-o', dtb, ROOT / 'kernel/zerolte-system2.dts'], logs / 'dtc.log')
-    firmware = {}
     if a.root_mode == 'rescue':
         # RAM rescue needs no proprietary firmware or radio initialization.
         for i, node in enumerate(['/soc@0/pcie@15660000', '/soc@0/serial@11460000/bluetooth']):
             run(['fdtput', '-t', 's', dtb, node, 'status', 'disabled'], logs / f'rescue-radio-{i}.log')
-    else:
-        require(a.firmware_dir is not None, 'userdata mode requires --firmware-dir; see docs/INSTALL.md')
-        for name in ['brcm/brcmfmac4358-pcie.bin', 'brcm/brcmfmac4358-pcie.txt',
-                     'brcm/BCM4358A3.samsung,exynos7420-zerolte.hcd', 'regulatory.db', 'regulatory.db.p7s']:
-            path = a.firmware_dir / name
-            require(path.is_file() and not path.is_symlink(), 'Missing regular firmware file: ' + name)
-            data = path.read_bytes()
-            if name.endswith('.txt'):
-                require(b'macaddr=' not in data.lower(), 'Remove a device-specific macaddr from the NVRAM input before sharing')
-            firmware['lib/firmware/' + name] = data
     archive = a.busybox_archive or a.work / 'busybox-1.37.0.tar.bz2'
     if not archive.exists():
         tmp = archive.with_suffix('.download')
@@ -121,9 +127,9 @@ def main():
     env = dict(os.environ, KCONFIG_NOTIMESTAMP='1')
     # BusyBox oldconfig's defaults are supplied from a complete pinned configuration.
     with (logs / 'busybox-config.log').open('wb') as output:
-        subprocess.run(['make', '-C', str(bsrc), 'O=' + str(bout), 'CROSS_COMPILE=aarch64-linux-gnu-', 'oldconfig'],
+        subprocess.run(['make', '-C', str(bsrc), 'O=' + str(bout), 'CROSS_COMPILE=' + TOOLCHAIN_PREFIX, 'oldconfig'],
                        input=b'\n' * 4096, stdout=output, stderr=subprocess.STDOUT, timeout=120, check=True, env=env)
-    run(['make', '-C', bsrc, 'O=' + str(bout), 'CROSS_COMPILE=aarch64-linux-gnu-', '-j4'], logs / 'busybox-build.log')
+    run(['make', '-C', bsrc, 'O=' + str(bout), 'CROSS_COMPILE=' + TOOLCHAIN_PREFIX, '-j4'], logs / 'busybox-build.log')
     busybox = bout / 'busybox'
     elf = busybox.read_bytes()
     require(elf[:4] == b'\x7fELF' and int.from_bytes(elf[18:20], 'little') == 183, 'BusyBox is not AArch64')
@@ -133,7 +139,7 @@ def main():
     require(all(int.from_bytes(elf[phoff+i*phentsize:phoff+i*phentsize+4], 'little') != 3 for i in range(phnum)),
             'BusyBox must be statically linked')
     recovery = logs / 'reboot-recovery'
-    run(['clang', '--target=aarch64-linux-gnu', '-fuse-ld=lld', '-nostdlib', '-static',
+    run(['clang', '--target=' + TOOLCHAIN_CLANG_TARGET, '-fuse-ld=lld', '-nostdlib', '-static',
          '-Wl,-e,_start', ROOT / 'rescue/reboot-recovery.S', '-o', recovery], logs / 'recovery-helper.log')
     files = {'init': (ROOT / 'rescue/init.sh').read_bytes(),
              'sbin/s6-usb-setup': (ROOT / 'rescue/usb-setup.sh').read_bytes(),
@@ -166,7 +172,7 @@ def main():
         for name in directories:
             (uout / (Path(base) / name).relative_to(source)).mkdir(parents=True, exist_ok=True)
     run(['make', '-B', '-C', source, 'O=' + str(uout), 'ARCH=aarch64', 'LLVM=1',
-         'CPP=clang --target=aarch64-linux-gnu -E -Ulinux -Uunix',
+         'CPP=clang --target=' + TOOLCHAIN_CLANG_TARGET + ' -E -Ulinux -Uunix',
          'KERNEL_PATH=' + str(image), 'DT_PATH=' + str(dtb), 'RAMDISK_PATH=' + str(initrd), '-j2'], logs / 'loader-build.log')
     image64((uout / 'uniLoader').read_bytes())
     a.output.mkdir(parents=True)
@@ -185,4 +191,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        raise SystemExit(str(exc)) from None

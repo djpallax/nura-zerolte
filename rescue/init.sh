@@ -17,7 +17,7 @@ if [ "$(cat /etc/s6-root-mode)" = userdata ]; then
   target=
   for u in /sys/class/block/sd*/uevent; do
    [ -r "$u" ] || continue
-   if $BB grep -q '^PARTNAME=USERDATA$' "$u"; then
+   if $BB grep -qE '^PARTNAME=(USERDATA|pmOS_root)$' "$u"; then
     [ -z "$target" ] || { target=ambiguous; break; }
     name=${u%/uevent}; target=/dev/${name##*/}
    fi
@@ -33,8 +33,7 @@ if [ "$(cat /etc/s6-root-mode)" = userdata ]; then
    # Reopen normally so ext4 loads/replays its journal only after validation.
    $BB umount /newroot
    if $BB timeout 15 $BB mount -t ext4 -o rw,noatime "$target" /newroot; then
-    $BB mkdir -p /newroot/dev /newroot/proc /newroot/sys
-    # No background processes/gadget have been started before switching roots.
+    $BB mkdir -p /newroot/dev /newroot/proc /newroot/sys &&
     $BB mount --move /dev /newroot/dev &&
     $BB mount --move /proc /newroot/proc &&
     $BB mount --move /sys /newroot/sys &&

@@ -9,13 +9,11 @@ Other variants have not been tested.
 | `djpallax/linux-zerolte` | Kernel drivers, bindings, defconfig and hardware notes. |
 | `djpallax/nura-zerolte` | Instructions, source locks, integration sources and future image/installer recipes. |
 
-The cleaned kernel builds with Clang/LLD 18.1.3 and CONFIG_WERROR=y; all 22 modified
-C objects also passed W=1. Earlier development images booted Plasma Mobile with
-touch, GPU acceleration, Wi-Fi and Bluetooth. See [hardware status](docs/HARDWARE.md).
-
-**Kernel/rescue bundle building and a BOOT-only TWRP installer are available.**
-A first-time Nura rootfs installer is not implemented yet. The new clean boot
-bundle still needs physical regression testing; this is an experimental port.
+**Start with the [installation guide](docs/INSTALL.md).** The BOOT installer
+supports the SM-G925I in TWRP and can boot either a RAM rescue console or an
+existing compatible Nura root. A phone starting from Android still needs a
+separate rootfs provisioning step. [PMOS.md](docs/PMOS.md) describes the inputs
+and the procedure used on the development phone.
 
 ## Build and install
 
@@ -24,6 +22,7 @@ git clone https://github.com/djpallax/nura-zerolte.git
 git clone --depth 1 --single-branch --branch zerolte-7.2.12 \
   https://github.com/djpallax/linux-zerolte.git
 cd nura-zerolte
+# Use the upstream fallback in INSTALL.md if the fork has not published this tree.
 python3 scripts/build.py --kernel ../linux-zerolte
 
 # Connect the SM-G925I in TWRP with working ADB access.
@@ -47,8 +46,7 @@ sha256sum -c SOURCE-SHA256SUMS
 ```
 
 sources.lock.json records the upstream base, cleaned Git tree identity, patch and
-config hashes, and the last locally built Image hash. The fork commit stays null
-until it has been committed/pushed; no commit hash has been invented. The tree
+config hashes, and the locally built Image hash. The fork commit is recorded after publication. The tree
 identity verifies the source snapshot even after a shallow clone of the fork.
 
 kernel/zerolte.patch is a fallback against upstream v7.2.12. Do not apply it again

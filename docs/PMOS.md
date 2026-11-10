@@ -14,6 +14,23 @@ package databases and validation logs. They are not claimed to be a verbatim she
 history or a currently tested one-command rootfs installer. Nothing in this
 procedure authorizes erasing another owner's data without their explicit choice.
 
+## Before provisioning a first device
+
+Start with the [BOOT installation guide](INSTALL.md) and save both the original
+BOOT receipt and a separate backup of any USERDATA you need. Confirm the RAM
+rescue console can see UFS and identify the partition by PARTNAME and filesystem
+type. The public RAM rescue marks block devices read-only and provides a serial
+console. The historical SSH provisioning step used a separate RAM environment
+with a writable, guarded USERDATA mount and an SSH server.
+
+Before replacing any data, prepare a complete ARM64 payload, verify its manifest,
+and have a RAM environment that can install and verify it independently of the
+target filesystem. Section 3 lists the board files the payload must contain.
+The public repository provides templates for those files and a BOOT installer.
+A complete rootfs builder and a portable USERDATA writer are still missing, so
+the sections below are a reconstruction for development rather than a turnkey
+installation.
+
 ## 1. Establish a working RAM rescue system first
 
 We first booted an Alpine ARM64 userspace entirely from initramfs and verified
@@ -154,6 +171,31 @@ s6-persistent-init.sh, s6-ramroot1.inittab, s6-ramroot1-usb-setup.sh and
 s6-ramroot1-ssh.openrc. The persistent init mounts volatile /run and /tmp,
 keeps the CONSOLEFIX1 USB shell respawn loop independent of OpenRC, and finishes
 with exec /sbin/init. The USB gadget is configured once, without resetting DWC3.
+
+For a new staging root, the two standalone binaries can come from your own
+verified rescue bundle. With `S6_ROOTFS` set to the staged ARM64 root, from the
+integration repository on the host:
+
+```sh
+test -n "$S6_ROOTFS" && test -f "$S6_ROOTFS/etc/os-release"
+test -x "$S6_ROOTFS/sbin/init" && test -x "$S6_ROOTFS/sbin/openrc"
+S6_STAGE=$(mktemp -d)
+(cd dist/zerolte && sha256sum -c SHA256SUMS)
+gzip -dc dist/zerolte/initramfs.cpio.gz |
+  (cd "$S6_STAGE" && cpio -id rescue/bin/busybox sbin/reboot-recovery)
+install -Dm755 "$S6_STAGE/rescue/bin/busybox" "$S6_ROOTFS/rescue/bin/busybox"
+install -Dm755 "$S6_STAGE/sbin/reboot-recovery" "$S6_ROOTFS/sbin/reboot-recovery"
+install -Dm755 userspace/s6-persistent-init.sh "$S6_ROOTFS/sbin/s6-persistent-init"
+install -Dm755 userspace/s6-ramroot1-usb-setup.sh "$S6_ROOTFS/sbin/ramroot1-usb-setup"
+install -Dm644 userspace/s6-ramroot1.inittab "$S6_ROOTFS/etc/inittab"
+printf 'S6-NURA-%s\n' "$(cat /proc/sys/kernel/random/uuid)" > "$S6_ROOTFS/etc/s6-install-id"
+date +%s > "$S6_ROOTFS/etc/s6-build-epoch"
+```
+
+Run the block in a shell with `set -e` and `set -o pipefail` so a failed
+validation stops staging. Adjust `dist/zerolte` if you used a different output
+directory. Confirm `ID=nura` or `ID=postmarketos` in the staged OS release
+before trying a userdata bundle.
 
 The first private development payload reused our existing static Dropbear,
 firmware and owner-authorized SSH material. That reuse is **not** a public-image
@@ -296,3 +338,26 @@ identities on first boot, and replace the owner-specific historical USERDATA
 installer with an explicitly authorized general installer and rollback path.
 The current scripts/install.py is intentionally BOOT-only; it must not be
 represented as already performing this initial distribution installation.
+
+
+## Optional compressed swap
+
+The kernel provides LZ4 zram and exposes pressure stall information under
+`/proc/pressure/`. On a persistent Nura root with OpenRC, install
+`userspace/s6-zram.openrc` from this repository as `/etc/init.d/s6-zram` with
+mode 0755. The service needs `mkswap`, `swapon` and `swapoff`, and expects
+`/dev/zram0` to be unused. On the phone:
+
+```sh
+rc-service s6-zram start
+cat /proc/swaps
+cat /sys/block/zram0/mm_stat
+cat /proc/pressure/memory
+rc-update add s6-zram default
+```
+
+The 512 MiB size is the logical swap capacity. Compressed pages and metadata
+consume RAM as swap is used. Compare application reloads and memory pressure
+under your workload. To remove the service from startup, use
+`rc-update del s6-zram default`. Stop it with `rc-service s6-zram stop` once
+there is enough free memory to bring any swapped pages back into RAM.

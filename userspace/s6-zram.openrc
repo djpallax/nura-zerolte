@@ -1,0 +1,34 @@
+#!/sbin/openrc-run
+
+description="512 MiB LZ4 compressed swap for the Galaxy S6 Edge"
+
+depend() {
+ need localmount
+ before s6-plasma-native
+}
+
+start() {
+ local sys=/sys/block/zram0 dev=/dev/zram0
+ ebegin "Starting compressed swap"
+ if [ ! -b "$dev" ] || [ "$(cat "$sys/disksize")" != 0 ]; then
+  eend 1 "zram0 is unavailable or already configured"
+  return 1
+ fi
+ if ! printf '%s\n' 536870912 > "$sys/disksize"; then
+  eend 1 "Cannot size zram0"
+  return 1
+ fi
+ if mkswap "$dev" >/dev/null && swapon -p 100 "$dev"; then
+  eend 0
+ else
+  printf '1\n' > "$sys/reset"
+  eend 1 "Cannot enable zram0 swap"
+  return 1
+ fi
+}
+
+stop() {
+ ebegin "Stopping compressed swap"
+ swapoff /dev/zram0 && printf '1\n' > /sys/block/zram0/reset
+ eend $?
+}
